@@ -1,0 +1,69 @@
+@startuml modele-discord
+' Modele du domaine - API Discord (I311)
+skinparam classAttributeIconSize 0
+hide circle
+
+class User {
+  +id: UUID
+  +username: String
+  +displayName: String
+  +joinedAt: Instant
+}
+
+class Guild {
+  +id: UUID
+  +name: String
+  +createdAt: Instant
+}
+
+class Channel {
+  +id: UUID
+  +name: String
+  +type: ChannelType
+  +topic: String
+}
+
+class Role {
+  +id: UUID
+  +name: String
+  +position: int
+}
+
+enum ChannelType {
+  TEXT
+  VOICE
+}
+
+User "*" -- "*" Guild : est membre de >
+Guild "1" *-- "*" Channel : contient >
+Guild "1" *-- "*" Role : definit >
+User "*" -- "*" Role : porte >
+
+Channel ..> ChannelType
+
+note bottom of User
+  username unique au niveau global.
+  username obligatoire et non vide.
+end note
+
+note bottom of Role
+  name unique au sein d'une meme Guild,
+  pas au niveau global.
+end note
+
+note bottom of Channel
+  name unique au sein d'une meme Guild.
+end note
+
+note "Un User ne peut porter un Role d'une Guild\nque s'il est membre de cette Guild.\nVerifie par la couche application." as N1
+User .. N1
+N1 .. Role
+
+note as N2
+  Tous les identifiants sont des UUID
+  generes par l'application.
+  La composition Guild -> Channel / Role
+  implique une suppression en cascade.
+end note
+
+@enduml
