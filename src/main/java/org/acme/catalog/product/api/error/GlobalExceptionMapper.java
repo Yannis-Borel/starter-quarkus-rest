@@ -3,7 +3,6 @@ package org.acme.catalog.product.api.error;
 import jakarta.annotation.Priority;
 import jakarta.ws.rs.Priorities;
 import jakarta.ws.rs.WebApplicationException;
-import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
@@ -26,13 +25,12 @@ public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
     @Override
     public Response toResponse(Throwable exception) {
 
-        // 1. Transparently pass through existing JAX-RS exceptions (like 405 Method Not
-        // Allowed)
-        // to preserve the web framework's native behavior.
+        // 1. JAX-RS exceptions below 500 (like 405 Method Not Allowed or 415 Unsupported
+        // Media Type) keep their status code, but in our single JSON error format.
         if (exception instanceof WebApplicationException webEx) {
             Response originalResponse = webEx.getResponse();
             if (originalResponse.getStatus() < 500) {
-                return originalResponse;
+                return ErrorResponse.build(originalResponse.getStatusInfo(), webEx.getMessage());
             }
         }
 
@@ -40,9 +38,7 @@ public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
         // We log the real error for developers but hide details from the client.
         LOG.error("Unhandled error caught by Global Mapper:", exception);
 
-        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
-                .entity("An unexpected error occurred. Please contact support.")
-                .type(MediaType.TEXT_PLAIN)
-                .build();
+        return ErrorResponse.build(Response.Status.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred. Please contact support.");
     }
 }

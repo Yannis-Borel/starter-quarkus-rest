@@ -1,20 +1,29 @@
 package org.acme.catalog.product.api.error;
 
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
 /**
- * Handles JSON parsing errors.
- * Prevents the client from seeing raw Jackson serialization stack traces
- * if they send a malformed JSON body (e.g., a missing bracket).
+ * Handles a JSON body that is well-formed but does not match the expected
+ * object (for example an array instead of an object, or {@code "type": "PHOTO"}
+ * for a {@code ChannelType}). Prevents the client from seeing raw Jackson
+ * details.
+ *
+ * <p>
+ * Le type traité est {@code MismatchedInputException} et non sa classe mère
+ * {@code JsonProcessingException} : Quarkus fournit déjà un mapper pour
+ * {@code MismatchedInputException} (400 sans corps), et JAX-RS choisit le
+ * mapper du type le plus proche de l'exception. En déclarant le même type, le
+ * nôtre le remplace. Un JSON <b>mal formé</b> (accolade manquante) n'arrive
+ * pas ici : Quarkus le transforme en {@code BadRequestException}, traitée par
+ * {@link GlobalExceptionMapper}.
  */
 @Provider
-public class JacksonMapper implements ExceptionMapper<com.fasterxml.jackson.core.JsonProcessingException> {
+public class JacksonMapper implements ExceptionMapper<MismatchedInputException> {
     @Override
-    public Response toResponse(com.fasterxml.jackson.core.JsonProcessingException ex) {
-        return Response.status(Response.Status.BAD_REQUEST)
-                .entity("Invalid JSON structure")
-                .build();
+    public Response toResponse(MismatchedInputException ex) {
+        return ErrorResponse.build(Response.Status.BAD_REQUEST, "Invalid JSON structure");
     }
 }

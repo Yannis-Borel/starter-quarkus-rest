@@ -14,8 +14,6 @@ import jakarta.ws.rs.ext.Provider;
 public class DomainExceptionMapper implements ExceptionMapper<IllegalArgumentException> {
     @Override
     public Response toResponse(IllegalArgumentException exception) {
-        return Response.status(Response.Status.BAD_REQUEST)
-                .entity(exception.getMessage())
-                .build();
+        return ErrorResponse.build(Response.Status.BAD_REQUEST, exception.getMessage());
     }
 }

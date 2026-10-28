@@ -144,7 +144,9 @@ Classes utilitaires : `final`, constructeur privé, méthodes `static`. Aucune a
 | `error/NotFoundMapper.java` | `NoSuchElementException` → 404. | `@Provider` (enregistré automatiquement par JAX-RS) |
 | `error/ConflictMapper.java` | `IllegalStateException` → 409. | `@Provider` |
 | `error/DomainExceptionMapper.java` | `IllegalArgumentException` → 400. | `@Provider` |
-| `error/JacksonMapper.java` | JSON mal formé → 400. | `@Provider` |
+| `error/JacksonMapper.java` | JSON bien formé mais du mauvais type (`MismatchedInputException`) → 400. | `@Provider` |
+| `error/ValidationMapper.java` | `ConstraintViolationException` (Bean Validation) → 400 avec la liste des champs. | `@Provider` |
+| `error/ErrorResponse.java` | Le **format unique** de toutes les erreurs (`status`, `error`, `message`, `fields`) et la méthode `build` utilisée par tous les mappers. | aucune |
 | `error/GlobalExceptionMapper.java` | Toute autre erreur → 500, sans fuite de détails techniques. | `@Provider`, `@Priority` |
 
 ---
@@ -615,3 +617,79 @@ contexte de persistance, entité managée, *dirty checking* (cours JPA de M. Bru
    a été chargée par `findByIdOptional` dans une méthode `@Transactional` : elle est managée par
    le contexte de persistance. Au commit, Hibernate compare son état à celui du chargement et
    envoie l'`UPDATE` (*dirty checking*).
+
+### 4.7 Gestion des erreurs : un seul format JSON (fonctionnalité 6 bis)
+
+**Toutes les erreurs ressemblent maintenant à ceci :**
+
+```json
+{
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Validation failed",
+  "fields": [
+    { "field": "username", "message": "Username must not contain spaces" },
+    { "field": "displayName", "message": "displayName is required" }
+  ]
+}
+```
+
+`fields` n'est rempli que pour un 400 de validation ; sinon c'est `[]`.
+
+**Quelle exception donne quel code, et par quel mapper** (tous dans `api/error/`) :
+
+| Situation | Exception Java | Code | Mapper |
+| --- | --- | --- | --- |
+| Contrainte Bean Validation (`@NotBlank`, `@ValidUsername`…) sur un objet `@Valid` | `ConstraintViolationException` | 400 + `fields` | `ValidationMapper` (nouveau) |
+| Règle du domaine violée (constructeur compact d'un record) | `IllegalArgumentException` | 400 | `DomainExceptionMapper` |
+| JSON bien formé mais du mauvais type (`[1,2]`, `"type": "PHOTO"`) | `MismatchedInputException` (Jackson) | 400 | `JacksonMapper` |
+| JSON **mal formé** (accolade manquante) | `BadRequestException` (Quarkus enveloppe l'erreur Jackson) | 400 | `GlobalExceptionMapper` (branche `WebApplicationException`) |
+| Ressource absente (`orElseThrow`) | `NoSuchElementException` | 404 | `NotFoundMapper` |
+| URL inconnue, ou UUID invalide dans l'URL | `NotFoundException` (JAX-RS) | 404 | `GlobalExceptionMapper` |
+| Verbe non autorisé (`DELETE /api/v1/users`) | `NotAllowedException` (JAX-RS) | 405 | `GlobalExceptionMapper` |
+| Mauvais `Content-Type` | `NotSupportedException` (JAX-RS) | 415 | `GlobalExceptionMapper` |
+| Doublon (pseudo, nom de salon/rôle dans la guilde) | `IllegalStateException` | 409 | `ConflictMapper` |
+| Tout le reste (bug, base injoignable…) | n'importe quel `Throwable` | 500, message générique, vraie erreur dans les logs | `GlobalExceptionMapper` |
+
+Les lignes JSON mal formé, URL inconnue, 405 et 415 ont été **constatées** en interrogeant
+l'application lancée ; les autres sont couvertes par `ErrorFormatIT` et
+`GlobalExceptionMapperTest`.
+
+**Comment JAX-RS choisit le mapper :** quand une exception sort d'une ressource, il cherche le
+`ExceptionMapper<E>` dont le type `E` est **le plus proche** de la classe de l'exception dans la
+hiérarchie d'héritage. `NoSuchElementException` → `NotFoundMapper` (type exact) plutôt que
+`GlobalExceptionMapper` (`Throwable`, très loin). C'est pour cela que `GlobalExceptionMapper`
+n'attrape que ce que personne d'autre ne prend.
+
+**Analogie.** Les mappers sont des **guichets** spécialisés ; `GlobalExceptionMapper` est
+l'accueil général. `ErrorResponse` est le **formulaire unique** que tous les guichets remplissent :
+le client reçoit toujours le même papier, quel que soit le guichet.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Un seul record `ErrorResponse` + `build(...)` | Consigne « ne rien dupliquer » : chaque mapper tient en une ligne. `Response.StatusType` en paramètre accepte aussi bien `Response.Status.NOT_FOUND` qu'un statut venu d'une exception JAX-RS (405, 415…). | Pas de classe de base abstraite pour les mappers : une méthode statique suffit. |
+| Champs `status` + `error` + `message` | `status` répète le code pour le client ; `error` est le nom standard (`getReasonPhrase()`) ; `message` est l'explication lisible. | Pas de `timestamp` ni de `path` : non demandés. |
+| `fields` = liste de `FieldError(field, message)` | Une **liste** et pas une `Map` : un même champ peut échouer sur deux contraintes (ex. `"  "` échoue à `@NotBlank` **et** à `@ValidUsername`). | — |
+| Nom du champ = dernier morceau du chemin (`create.request.username` → `username`) | Le client n'a pas à connaître le nom de la méthode Java. Un `substring` suffit. | Pas d'expression régulière. |
+| `ValidationMapper` nouveau | Sans lui, Quarkus renvoie déjà 400, mais avec **son** format JSON. | — |
+| `JacksonMapper` retypé en `MismatchedInputException` | Constaté : Quarkus a un mapper intégré pour ce type exact (`BuiltinMismatchedInputExceptionMapper`, 400 **sans corps**), qui passait devant le nôtre, déclaré sur la classe mère. Même type → le nôtre gagne (vérifié par le test). | — |
+| Exceptions JAX-RS < 500 : on garde leur code mais au format commun | Avant, `GlobalExceptionMapper` renvoyait la réponse d'origine telle quelle (texte ou vide). | Je n'ai pas réécrit leurs messages (« HTTP 404 Not Found ») : ils ne révèlent rien de technique. |
+| 500 : message générique, vraie erreur dans les logs (`LOG.error`) | Exigence de sécurité du starter (NFR-SEC-03) : ne pas montrer de pile d'appels ni de SQL au client. | — |
+| Les messages de `Product` passent aussi au format JSON | Un seul format pour toute l'API. Les scénarios Cucumber du starter (« the error message should contain … ») passent toujours : le message est dans le JSON. | — |
+
+**Notion de cours :** REST JAX-RS, `ExceptionMapper` et `@Provider` (cours REST de M. Bruno) ;
+Bean Validation : `ConstraintViolation`, chemin de propriété, message.
+
+**Questions d'oral probables :**
+
+1. *Qui transforme une `NoSuchElementException` en 404 ?* — `NotFoundMapper`, un
+   `ExceptionMapper<NoSuchElementException>` annoté `@Provider`. Le service ne connaît pas HTTP ;
+   le mapper fait le lien.
+2. *Si plusieurs mappers peuvent traiter une exception, lequel est choisi ?* — Celui dont le type
+   est le plus proche de la classe de l'exception. `GlobalExceptionMapper` (`Throwable`) ne sert
+   que si aucun mapper plus précis n'existe.
+3. *Pourquoi ne jamais renvoyer le message d'une exception imprévue au client ?* — Il peut
+   contenir des détails internes (requête SQL, nom de classe, pile d'appels) utiles à un attaquant.
+   On renvoie un message générique et on écrit la vraie erreur dans les logs pour les développeurs.
