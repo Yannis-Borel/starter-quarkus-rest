@@ -217,3 +217,54 @@ Classes utilitaires : `final`, constructeur privé, méthodes `static`. Aucune a
    l'entrée de l'API et renvoie des messages par champ ; le constructeur du record protège le
    domaine quel que soit l'appelant (un test, un futur bot…). Ce sont deux remparts à deux endroits
    différents.
+
+### 4.2 Contrainte Bean Validation personnalisée `@ValidUsername` (fonctionnalité 2)
+
+**Fichiers :** `application/validation/ValidUsername.java` (l'annotation),
+`application/validation/ValidUsernameValidator.java` (la vérification), posée sur
+`CreateUserRequest.username`. Tests : `ValidUsernameValidatorTest` (unitaire) et
+`UserResourceIT` (API, vérifie le 400).
+
+**Analogie.** L'annotation est une **étiquette** collée sur le champ (« à contrôler : pas
+d'espace ») ; le validateur est le **contrôleur** qui lit l'étiquette et fait le contrôle.
+`@Constraint(validatedBy = …)` est la ligne qui dit quel contrôleur correspond à quelle étiquette.
+
+**Comment ça marche, dans l'ordre** (mécanisme du Bean Validator) :
+1. `UserResource.create(@Valid CreateUserRequest request)` : `@Valid` demande la validation.
+2. Le validateur (Hibernate Validator, implémentation de Bean Validation) **reçoit l'instance**,
+   fait une **introspection** de sa classe : il cherche les annotations de contrainte sur les champs.
+3. Sur `username`, il trouve `@NotBlank` et `@ValidUsername`. Pour `@ValidUsername`, il lit
+   `@Constraint(validatedBy = ValidUsernameValidator.class)`, crée le validateur et appelle
+   `isValid("mon pseudo", …)` → `false`.
+4. Une contrainte au moins a échoué : la méthode `create` **n'est pas appelée**, le client reçoit 400.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Règle unique : `!value.contains(" ")` | Vérifiable sans expression régulière, une ligne à expliquer. | Pas de longueur 2–32, pas de liste de caractères autorisés : la règle devait rester simple. |
+| `@Target(ElementType.FIELD)` | On ne la pose que sur un champ. Dans un record, l'annotation écrite sur le composant `username` est recopiée par Java sur le **champ** privé (car `FIELD` est autorisé). | Pas de `METHOD`, `PARAMETER`, `TYPE_USE` comme dans `CheckCase` : on n'en a pas l'usage. Conséquence à connaître : l'annotation n'est **pas** recopiée sur le composant du record lui-même (voir 4.x Introspection). |
+| `@Retention(RetentionPolicy.RUNTIME)` | Le validateur lit l'annotation **pendant l'exécution**, par introspection. Avec `SOURCE` (effacée après compilation) ou `CLASS` (dans le `.class` mais invisible à la réflexion), il ne la verrait pas. | — |
+| `@Constraint(validatedBy = ValidUsernameValidator.class)` | Obligatoire : c'est ce qui fait de l'annotation une contrainte Bean Validation. | — |
+| `@Documented` | Comme `CheckCase` : la contrainte apparaît dans la Javadoc des champs qui la portent. | Pas de `@Repeatable` (présent dans `CheckCase`) : la poser deux fois n'aurait aucun sens. |
+| Éléments `message`, `groups`, `payload` | Les trois sont **exigés** par la spécification Bean Validation pour toute contrainte. `message` a une valeur par défaut en anglais, comme les autres messages du projet. | Aucun élément de configuration en plus (le `value()` de `CheckCase` choisit majuscules/minuscules ; nous n'avons rien à configurer). Donc pas de méthode `initialize`. |
+| `isValid(null)` renvoie `true` | Comme dans le cours (`CheckCaseValidator` : `if (object == null) return true;`). Chaque contrainte vérifie **une** chose ; la présence, c'est `@NotBlank`. Sinon un pseudo absent donnerait deux messages d'erreur. | — |
+| Paquetage `application/validation` | L'annotation est utilisée par les DTO de la couche application ; un sous-dossier dédié, comme `dto/`. | Pas dans `domain` : le domaine ne doit dépendre d'aucun framework (`jakarta.validation` en est un). |
+
+**Ce qui est vérifié :** `POST /api/v1/users` avec `"username": "mon pseudo"` renvoie **400**
+(`UserResourceIT`) ; le validateur seul est testé sur 3 cas (avec espace, sans espace, `null`).
+
+**Notion de cours :** Bean Validation, contrainte personnalisée (cours Bean Validation de M. Bruno,
+exemple `CheckCase` / `CheckCaseValidator`) ; rétention des annotations (cours Annotations 1/2).
+
+**Questions d'oral probables :**
+
+1. *Quels sont les deux fichiers d'une contrainte personnalisée, et qu'est-ce qui les relie ?* —
+   L'annotation (`@interface ValidUsername`) et la classe qui implémente
+   `ConstraintValidator<ValidUsername, String>`. Le lien est
+   `@Constraint(validatedBy = ValidUsernameValidator.class)` sur l'annotation.
+2. *Pourquoi `RUNTIME` ?* — Parce que le validateur lit l'annotation par introspection pendant
+   que l'application tourne. `SOURCE` (comme `@Override`) disparaît à la compilation ; `CLASS` est
+   dans le bytecode mais pas accessible par réflexion.
+3. *Que renvoie `isValid` pour `null`, et pourquoi ?* — `true` : la nullité est déléguée à
+   `@NotNull` / `@NotBlank`, comme dans le cours. Une contrainte = une règle.

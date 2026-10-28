@@ -1,6 +1,7 @@
 package org.acme.catalog.product.application.dto.usecases;
 
 import jakarta.validation.constraints.NotBlank;
+import org.acme.catalog.product.application.validation.ValidUsername;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 /**
@@ -18,6 +19,7 @@ public record CreateUserRequest(
 
         @Schema(description = "Username", examples = { "Mirnis84" })
         @NotBlank(message = "Username is required")
+        @ValidUsername
         String username,
 
         @Schema(description = "Display name", examples = { "Yannis" })
