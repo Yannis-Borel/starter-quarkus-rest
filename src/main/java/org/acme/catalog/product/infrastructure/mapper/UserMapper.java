@@ -34,6 +34,29 @@ public final class UserMapper {
     }
 
     /**
+     * Domaine → DTO. Même nom que {@link #toDto(UserEntity)} mais un paramètre
+     * d'un autre type : c'est une <b>surcharge</b>, Java choisit la bonne
+     * méthode d'après le type de l'argument.
+     *
+     * @param user l'utilisateur du domaine
+     * @return le DTO public
+     */
+    public static UserDTO toDto(User user) {
+        return new UserDTO(user.id(), user.username(), user.displayName(), user.joinedAt());
+    }
+
+    /**
+     * Entité → domaine : recrée le record (et revérifie donc ses règles) à
+     * partir d'une ligne lue en base.
+     *
+     * @param entity la ligne lue en base
+     * @return l'utilisateur du domaine
+     */
+    public static User toDomain(UserEntity entity) {
+        return new User(entity.getId(), entity.getUsername(), entity.getDisplayName(), entity.getJoinedAt());
+    }
+
+    /**
      * Requête de création → entité, en passant par le domaine : c'est
      * {@code User.of} qui génère l'UUID et la date, et le constructeur du
      * record qui vérifie les règles métier.

@@ -11,6 +11,8 @@ import jakarta.transaction.Transactional;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.function.Predicate;
+import org.acme.catalog.product.domain.User;
 
 /**
  * Cas d'usage sur les utilisateurs (couche application).
@@ -37,12 +39,27 @@ public class UserService {
     }
 
     /**
-     * Liste tous les utilisateurs.
+     * Liste les utilisateurs, éventuellement filtrés par une recherche.
      *
-     * @return chaque utilisateur sous forme de DTO
+     * <p>
+     * Notion de cours : programmation fonctionnelle. {@code matchesSearch} est
+     * un {@code Predicate<User>} : une fonction qui reçoit un {@code User} et
+     * renvoie {@code true} ou {@code false}. Le stream enchaîne trois étapes :
+     * {@code map} (une {@code Function} entité → domaine), {@code filter} (garde
+     * ceux pour qui le prédicat est vrai), {@code map} (domaine → DTO).
+     *
+     * @param search texte cherché dans le pseudo ou le nom affiché, sans tenir
+     *               compte des majuscules ; {@code null} pour tout renvoyer
+     * @return les utilisateurs correspondants, sous forme de DTO
      */
-    public List<UserDTO> getAll() {
+    public List<UserDTO> getAll(String search) {
+        Predicate<User> matchesSearch = user -> search == null
+                || user.username().toLowerCase().contains(search.toLowerCase())
+                || user.displayName().toLowerCase().contains(search.toLowerCase());
+
         return repository.listAll().stream()
+                .map(UserMapper::toDomain)
+                .filter(matchesSearch)
                 .map(UserMapper::toDto)
                 .toList();
     }

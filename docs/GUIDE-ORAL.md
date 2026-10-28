@@ -425,3 +425,108 @@ existant, lui, a été vérifié).
    J'ai deux exécutions du `maven-compiler-plugin` : l'une compile seulement le processeur plus
    tôt (phase `process-sources`), l'autre compile le reste en déclarant le processeur avec
    `<annotationProcessors>`.
+
+### 4.5 Programmation fonctionnelle (fonctionnalité 5)
+
+**Ce qui a été ajouté :**
+
+| Où | Quoi |
+| --- | --- |
+| `GuildService.getChannelStats` + `GuildResource` | `GET /api/v1/guilds/{id}/stats` → par exemple `{"TEXT": 2, "VOICE": 1}` |
+| `UserService.getAll(String search)` + `UserResource` | `GET /api/v1/users?search=yan` (pseudo **ou** nom affiché, sans tenir compte des majuscules) |
+| `UserMapper.toDomain(entity)` et `UserMapper.toDto(User)` | Nécessaires pour filtrer sur le **record du domaine** `User` (`Predicate<User>`) |
+| Tests | `GuildResourceIT` (stats 200 et 404), `UserResourceIT.searchFiltersUsers` |
+
+**Analogie.** Un stream est une **chaîne de montage** : les objets passent un par un devant des
+postes. `map` = un poste qui transforme l'objet ; `filter` = un poste qui jette ceux qui ne
+conviennent pas ; `collect` / `toList` = le carton à la fin de la chaîne. Une lambda
+(`x -> …`) est la consigne donnée à un poste.
+
+**1) Le filtre `?search=` avec un `Predicate<User>`**
+
+```java
+Predicate<User> matchesSearch = user -> search == null
+        || user.username().toLowerCase().contains(search.toLowerCase())
+        || user.displayName().toLowerCase().contains(search.toLowerCase());
+
+return repository.listAll().stream()
+        .map(UserMapper::toDomain)   // Function<UserEntity, User>
+        .filter(matchesSearch)       // Predicate<User>
+        .map(UserMapper::toDto)      // Function<User, UserDTO>
+        .toList();
+```
+
+Le même code en boucle `for` classique :
+
+```java
+List<UserDTO> result = new ArrayList<>();
+for (UserEntity entity : repository.listAll()) {
+    User user = UserMapper.toDomain(entity);
+    if (matchesSearch.test(user)) {
+        result.add(UserMapper.toDto(user));
+    }
+}
+return result;
+```
+
+**2) Les statistiques avec `Collectors`**
+
+```java
+return guild.getChannels().stream()
+        .collect(Collectors.groupingBy(ChannelEntity::getType, Collectors.counting()));
+```
+
+En boucle `for` :
+
+```java
+Map<ChannelType, Long> result = new HashMap<>();
+for (ChannelEntity channel : guild.getChannels()) {
+    ChannelType type = channel.getType();
+    result.put(type, result.getOrDefault(type, 0L) + 1);
+}
+return result;
+```
+
+`groupingBy(clé, collecteurAval)` : le premier argument dit **comment ranger** (par type), le
+second dit **quoi faire de chaque groupe** (le compter). C'est la remarque du cours : quand on
+veut enchaîner un traitement sur le résultat d'un stream, regarder du côté de `Collectors`.
+
+**3) Où sont les 4 interfaces fonctionnelles dans le projet (usages réels, rien d'ajouté exprès) :**
+
+| Interface | Méthode abstraite | Où dans le projet |
+| --- | --- | --- |
+| `Predicate<T>` | `boolean test(T t)` | `matchesSearch` dans `UserService.getAll` ; `filter(...)` attend un `Predicate` |
+| `Function<T, R>` | `R apply(T t)` | `.map(UserMapper::toDto)` dans tous les services (`map` attend une `Function`) ; `ChannelEntity::getType` donné à `groupingBy` ; `withGateway(gateway -> …)` dans le bot |
+| `Supplier<T>` | `T get()` | `orElseThrow(() -> new NoSuchElementException("…"))` dans les ressources et services : la lambda **fournit** l'exception, seulement si l'`Optional` est vide |
+| `Consumer<T>` | `void accept(T t)` | `subscribe(null, error -> LOG.error(…))` dans `Discord4jBot` : la lambda **consomme** l'erreur sans rien renvoyer ; `forEach(row -> …)` dans `ProductSteps` (tests du starter) |
+
+`UserMapper::toDto` est une **référence de méthode** : une écriture courte pour la lambda
+`entity -> UserMapper.toDto(entity)`.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Filtrer sur le record `User` (domaine) | La consigne demandait un `Predicate<User>` ; c'est aussi l'occasion d'avoir une conversion entité → domaine (`toDomain`) qui resservira pour le PUT. | Pas de filtre en SQL : le filtrage en mémoire charge tous les utilisateurs. C'est acceptable pour l'oral ; la pagination et les filtres SQL sont prévus en priorité D. |
+| Deux méthodes `toDto` (surcharge) | Même nom, même rôle (« vers le DTO ») ; Java choisit d'après le type. La référence `UserMapper::toDto` marche sur un stream d'entités comme sur un stream de `User`. | — |
+| `toLowerCase()` des deux côtés | Recherche insensible aux majuscules, sans expression régulière. | — |
+| `search == null` dans le prédicat | Sans paramètre, le prédicat est toujours vrai : un seul chemin de code. | — |
+| Renvoyer une `Map<ChannelType, Long>` | Jackson la transforme directement en `{"TEXT": 2}` ; pas besoin d'un DTO de plus. | Un type sans salon n'apparaît pas (on n'ajoute pas `"VOICE": 0`) : c'est le comportement de `groupingBy`, le compléter demanderait du code en plus. |
+| `guild.getChannels()` (la relation `@OneToMany`) | Réutilise la relation existante. Le chargement est LAZY (par défaut pour `@OneToMany`) : la liste est lue en base au premier accès. Constaté par le test : cela fonctionne sans `@Transactional` sur la méthode. | Je ne peux pas confirmer le mécanisme exact de Quarkus qui garde la session ouverte ici sans vérifier sa doc ; si on veut être prudent, `@Transactional` sur la méthode le garantit. |
+| Pas de `Comparable` sur `Role` | Consigne : un `compareTo` sur la seule position serait **incohérent avec `equals`** : deux rôles différents (« Modo » et « Admin ») de même position donneraient `compareTo == 0` alors que `equals` est `false`. Un `TreeSet<Role>` en garderait alors un seul (il se fie à `compareTo`). Pour trier, on utilise un `Comparator` à part, par exemple `Comparator.comparingInt(Role::position)`, sans changer la définition de l'égalité. | Le tri des rôles existant (`order by position desc` dans `RoleRepository`) est fait en SQL, rien à ajouter. |
+
+**Notion de cours :** programmation fonctionnelle et streams (cours Java 8 de M1 de M. Bruno,
+« Fonctionnel » et « Streams ») ; `Comparable` / `equals` (cours Collections de M1).
+
+**Questions d'oral probables :**
+
+1. *Qu'est-ce qu'un `Predicate`, et où l'utilises-tu ?* — Une interface fonctionnelle dont la
+   méthode `test(T)` renvoie un `boolean`. Dans `UserService.getAll`, `matchesSearch` dit si un
+   `User` correspond à la recherche ; je le passe à `filter`.
+2. *Que fait `Collectors.groupingBy(ChannelEntity::getType, Collectors.counting())` ?* — Il range
+   les salons dans une `Map` dont la clé est le type, et `counting()` remplace la liste de chaque
+   groupe par son nombre d'éléments : `{TEXT=2, VOICE=1}`.
+3. *Dans `orElseThrow(() -> new NoSuchElementException(...))`, quelle interface fonctionnelle
+   est utilisée, et pourquoi une lambda plutôt que l'exception directement ?* — Un `Supplier` :
+   l'exception n'est créée que si l'`Optional` est vide. On passe « la façon de la fabriquer »,
+   pas l'exception elle-même.

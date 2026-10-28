@@ -1,6 +1,8 @@
 package org.acme.catalog.product.api;
 
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
@@ -38,6 +40,30 @@ class UserResourceIT {
                 .body("""
                         { "username": "valid-user-it", "displayName": "Yannis" }
                         """)
+                .when().post("/api/v1/users")
+                .then()
+                .statusCode(201);
+    }
+
+    @Test
+    @DisplayName("GET ?search= filtre sur le pseudo ou le nom affiché, sans tenir compte des majuscules")
+    void searchFiltersUsers() {
+        createUser("search-alice", "Alice");
+        createUser("search-bob", "Bob");
+
+        given()
+                .queryParam("search", "ALICE")
+                .when().get("/api/v1/users")
+                .then()
+                .statusCode(200)
+                .body("username", hasItem("search-alice"))
+                .body("username", not(hasItem("search-bob")));
+    }
+
+    private void createUser(String username, String displayName) {
+        given()
+                .contentType(ContentType.JSON)
+                .body("{ \"username\": \"" + username + "\", \"displayName\": \"" + displayName + "\" }")
                 .when().post("/api/v1/users")
                 .then()
                 .statusCode(201);

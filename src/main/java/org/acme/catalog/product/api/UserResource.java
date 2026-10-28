@@ -51,15 +51,17 @@ public class UserResource {
     }
 
     /**
-     * {@code GET /api/v1/users}
+     * {@code GET /api/v1/users} ou {@code GET /api/v1/users?search=yan}
      *
-     * @return tous les utilisateurs
+     * @param search filtre optionnel, lu après le {@code ?} ({@code @QueryParam})
+     * @return les utilisateurs correspondants
      */
     @GET
-    @Operation(summary = "Get all users", description = "Returns the list of all users")
+    @Operation(summary = "Get users, optionally filtered", description = "Returns all users, or those whose username or display name contains the search text (case-insensitive)")
     @APIResponse(responseCode = "200", description = "List of users", content = @Content(mediaType = "application/json", schema = @Schema(implementation = UserDTO.class, type = SchemaType.ARRAY)))
-    public List<UserDTO> getAll() {
-        return service.getAll();
+    public List<UserDTO> getAll(
+            @Parameter(description = "Text to search in the username or display name") @QueryParam("search") String search) {
+        return service.getAll(search);
     }
 
     /**

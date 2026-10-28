@@ -7,11 +7,13 @@ import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.acme.catalog.product.application.GuildService;
 import org.acme.catalog.product.application.dto.GuildDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
+import org.acme.catalog.product.domain.ChannelType;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
@@ -55,6 +57,21 @@ public class GuildResource {
     public GuildDTO getById(@PathParam("id") UUID id) {
         return service.getById(id)
                 .orElseThrow(() -> new NoSuchElementException("Guild not found"));
+    }
+
+    /**
+     * {@code GET /api/v1/guilds/{id}/stats} : nombre de salons par type.
+     *
+     * @param id the guild identifier
+     * @return for example {@code {"TEXT": 2, "VOICE": 1}}
+     */
+    @GET
+    @Path("/{id}/stats")
+    @Operation(summary = "Count the channels of a guild by type")
+    @APIResponse(responseCode = "200", description = "Number of channels per type")
+    @APIResponse(responseCode = "404", description = "Guild not found")
+    public Map<ChannelType, Long> getChannelStats(@PathParam("id") UUID id) {
+        return service.getChannelStats(id);
     }
 
     /**

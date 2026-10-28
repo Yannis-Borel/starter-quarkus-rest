@@ -3,12 +3,16 @@ package org.acme.catalog.product.application;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.acme.catalog.product.application.dto.GuildDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
+import org.acme.catalog.product.domain.ChannelType;
 import org.acme.catalog.product.infrastructure.mapper.GuildMapper;
+import org.acme.catalog.product.infrastructure.persistence.ChannelEntity;
 import org.acme.catalog.product.infrastructure.persistence.GuildEntity;
 import org.acme.catalog.product.infrastructure.persistence.GuildRepository;
 
@@ -45,6 +49,27 @@ public class GuildService {
     public Optional<GuildDTO> getById(UUID id) {
         return repository.findByIdOptional(id)
                 .map(GuildMapper::toDto);
+    }
+
+    /**
+     * Compte les salons d'une guilde par type, par exemple
+     * {@code {"TEXT": 2, "VOICE": 1}}.
+     *
+     * <p>
+     * Notion de cours : {@code Collectors}. {@code groupingBy} range les salons
+     * dans des groupes selon la clé donnée ({@code ChannelEntity::getType}, une
+     * {@code Function}) et {@code counting()} remplace chaque groupe par sa
+     * taille. Un type sans aucun salon n'apparaît pas dans le résultat.
+     *
+     * @param id l'identifiant de la guilde
+     * @return le nombre de salons pour chaque type présent
+     * @throws NoSuchElementException si la guilde n'existe pas
+     */
+    public Map<ChannelType, Long> getChannelStats(UUID id) {
+        GuildEntity guild = repository.findByIdOptional(id)
+                .orElseThrow(() -> new NoSuchElementException("Guild not found: " + id));
+        return guild.getChannels().stream()
+                .collect(Collectors.groupingBy(ChannelEntity::getType, Collectors.counting()));
     }
 
     /**
