@@ -42,6 +42,13 @@ DB_PORT=15432 ./mvnw quarkus:dev
 Swagger UI : <http://localhost:8080/swagger-ui/> (et non `/q/swagger-ui`, à cause de
 `quarkus.swagger-ui.path=/swagger-ui` dans `application.properties`).
 
+Lancer l'application **avec le bot Discord** (remplacer `ton-jeton` ; étapes du portail dans
+`docs/discord-bot.md`) :
+
+```bash
+DISCORD_TOKEN=ton-jeton DB_PORT=15432 ./mvnw quarkus:dev
+```
+
 Lancer **tous** les tests (unitaires, ArchUnit, intégration ; Docker doit tourner) :
 
 ```bash
@@ -148,6 +155,37 @@ Classes utilitaires : `final`, constructeur privé, méthodes `static`. Aucune a
 | `error/ValidationMapper.java` | `ConstraintViolationException` (Bean Validation) → 400 avec la liste des champs. | `@Provider` |
 | `error/ErrorResponse.java` | Le **format unique** de toutes les erreurs (`status`, `error`, `message`, `fields`) et la méthode `build` utilisée par tous les mappers. | aucune |
 | `error/GlobalExceptionMapper.java` | Toute autre erreur → 500, sans fuite de détails techniques. | `@Provider`, `@Priority` |
+
+### 2.6 Fichiers ajoutés depuis le 28 octobre (index)
+
+Le détail de chacun est dans la section de sa fonctionnalité (partie 4).
+
+| Fichier | Couche | Rôle en une phrase | Annotations principales | Section |
+| --- | --- | --- | --- | --- |
+| `application/validation/ValidUsername` | application | Contrainte Bean Validation : pseudo sans espace. | `@Constraint`, `@Target(FIELD)`, `@Retention(RUNTIME)`, `@Documented` | 4.2 |
+| `application/validation/ValidUsernameValidator` | application | Vérification de `@ValidUsername`. | aucune (implémente `ConstraintValidator`) | 4.2 |
+| `infrastructure/discord/DiscordBot` | infrastructure | Interface du bot (mockable). | aucune | 4.3 |
+| `infrastructure/discord/Discord4jBot` | infrastructure | Bot Discord4J : `!ping` → `pong!`. | `@ApplicationScoped`, `@PreDestroy` | 4.3 |
+| `infrastructure/discord/DiscordBotStartup` | infrastructure | Démarre le bot si `DISCORD_TOKEN` existe. | `@ApplicationScoped`, `@Observes StartupEvent`, `@ConfigProperty`, `@Inject` | 4.3 |
+| `domain/DomainModel` | domain | Annotation traitée à la compilation. | `@Target(TYPE)`, `@Retention(SOURCE)` | 4.4 |
+| `org/acme/processor/DomainModelProcessor` | hors couches (outil de compilation) | Processeur : vérifie « est un record » et génère `XxxFields`. | `@SupportedAnnotationTypes`, `@SupportedSourceVersion` | 4.4 |
+| `dto/usecases/RoleUpdateQuery`, `UserUpdateQuery`, `GuildUpdateQuery`, `ChannelUpdateQuery` | application | JSON reçu pour un `PUT` : champs modifiables seulement. | Bean Validation, `@Schema` | 4.6 |
+| `api/error/ErrorResponse` | api | Format unique des erreurs + méthode `build`. | aucune | 4.7 |
+| `api/error/ValidationMapper` | api | `ConstraintViolationException` → 400 + champs. | `@Provider` | 4.7 |
+| `api/error/GoneMapper` | api | `InvitationExpiredException` → 410. | `@Provider` | 4.12 |
+| `domain/Invitation` | domain | Record du lien d'invitation, règle `isExpired`. | `@DomainModel` | 4.12 |
+| `persistence/InvitationEntity`, `InvitationRepository` | infrastructure | Table `invitations`, `findByCode`. | `@Entity`, `@ManyToOne`, `@ApplicationScoped` | 4.12 |
+| `mapper/InvitationMapper` | infrastructure | Conversions de l'invitation. | aucune | 4.12 |
+| `application/InvitationService`, `InvitationExpiredException` | application | Créer un lien, rejoindre ; exception « expiré ». | `@ApplicationScoped`, `@Transactional` | 4.12 |
+| `dto/InvitationDTO`, `dto/usecases/JoinGuildRequest` | application | JSON renvoyé / reçu. | `@Schema`, `@NotBlank` | 4.12 |
+| `api/InvitationResource` | api | `POST /api/v1/invitations/{code}/join`. | `@Path`, `@POST`, `@PathParam`, `@Valid` | 4.12 |
+
+Fichiers existants **modifiés** : les 4 records (withers, `@DomainModel`), les 4 mappers
+(`toDomain`, `updateEntity`), les 4 services et ressources (`update`, `PUT`), `GuildService` /
+`GuildResource` (stats, membres, invitations), `UserService` / `UserResource` (recherche,
+retrait des guildes à la suppression), `GuildEntity` (`members`, `invitations`), `UserEntity`
+(`@NotBlank`, `guilds`), les 5 mappers d'erreurs (format commun), `pom.xml` (Discord4J,
+processeur), `LayerArchitecture` (2 `ignoreDependency`).
 
 ---
 
@@ -984,3 +1022,19 @@ règles métier dans le domaine, codes HTTP (410 vs 400 vs 404), `ExceptionMappe
 3. *Que se passe-t-il en base quand un utilisateur rejoint une guilde ?* — Le service ajoute
    l'utilisateur au `Set` `members` de la `GuildEntity` (côté propriétaire, entité managée) ; au
    commit, Hibernate insère une ligne `(guild_id, user_id)` dans `guild_members`.
+
+### 4.13 README du projet (fonctionnalité 9)
+
+`README.md` remplace celui du starter : présentation, architecture, prérequis, installation
+(conteneur PostgreSQL), lancement (avec et sans bot), tests, **tableau de tous les endpoints avec
+leurs codes**, format des erreurs, et ce qui reste à faire.
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| En français | Projet et cours en français. | — |
+| Section « Pas encore fait » | Honnêteté sur l'état du projet : pagination, Flyway, Dockerfile multi-étages, `docker-compose` adapté, CI dédiée et LLM sont prévus pour le rendu final (priorité D). | Je n'ai pas documenté `docker compose up` : le `compose.yml` actuel est celui du starter (image `brunoe/product-catalog`), il ne lance pas ce projet. |
+| Une commande par bloc | Copier-coller sûr sous zsh. | — |
+
+**Question d'oral probable :** *Comment lance-t-on ton projet de zéro ?* — Démarrer PostgreSQL
+(`docker start product-catalog-postgres`), puis `DB_PORT=15432 ./mvnw quarkus:dev` ; Swagger UI
+sur `/swagger-ui/`. Les tests : `./mvnw clean verify` avec Docker lancé.
