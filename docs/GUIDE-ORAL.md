@@ -806,3 +806,64 @@ User.class.getAnnotation(DomainModel.class);   // null
 3. *Pourquoi `getDeclaredField` et pas `getField` ?* — `getField` ne renvoie que les champs
    publics, hérités compris ; `getDeclaredField` renvoie tous les champs déclarés dans la classe,
    privés compris. Les champs d'un record sont privés.
+
+### 4.10 Tests : unitaires (JUnit + Mockito) et d'intégration (Testcontainers) (fonctionnalité 7)
+
+**Les deux familles de tests du projet :**
+
+| | Test unitaire | Test d'intégration |
+| --- | --- | --- |
+| Nom de classe | `…Test` | `…IT` |
+| Lancé par | Surefire (`./mvnw test`) | Failsafe (phase `verify` : `./mvnw verify`) |
+| Démarre Quarkus ? | Non | Oui (`@QuarkusTest`) |
+| Base de données | Aucune : le repository est un **mock** Mockito | Un **vrai PostgreSQL** dans un conteneur Docker (Testcontainers) |
+| Vitesse | Millisecondes | Quelques secondes (démarrage du conteneur et de Quarkus) |
+| Exemples | `UserServiceTest`, `ValidUsernameValidatorTest`, `DiscordBotStartupTest`, `DomainModelProcessorTest`, `IntrospectionTest`, `GlobalExceptionMapperTest`, ArchUnit | `UserResourceIT`, `GuildResourceIT`, `RoleResourceIT`, `ChannelResourceIT`, `ErrorFormatIT`, `UserEntityValidationIT` |
+
+**Nouveau : `application/UserServiceTest`** (5 tests) — création (pseudo libre → `persist`
+appelé ; doublon → `IllegalStateException` et `persist` **jamais** appelé), recherche, modification,
+utilisateur inconnu.
+
+```java
+repository = mock(UserRepository.class);              // faux repository
+service = new UserService(repository);                // le vrai service, sans Quarkus
+when(repository.findByUsername("yannis")).thenReturn(Optional.empty());   // on décide la réponse
+service.create(new CreateUserRequest("yannis", "Yannis"));
+verify(repository).persist(any(UserEntity.class));    // on vérifie l'appel
+```
+
+**D'où vient le PostgreSQL des tests d'intégration** (vérifié dans la doc Quarkus 3.31,
+« Testing » et « Dev Services ») :
+- la classe du starter `src/test/java/org/acme/testresources/PostgreSqlTestResource` démarre un
+  conteneur `postgres:15-alpine` avec **Testcontainers** et donne son URL à Quarkus ;
+- elle est déclarée sur `CatalogAcceptanceIT` avec `@QuarkusTestResource`, mais les ressources
+  de test sont **globales** : elle sert à **tous** les `@QuarkusTest` (doc : « Test resources are
+  global… ») ;
+- les **Dev Services** de Quarkus (qui utilisent aussi Testcontainers) ne sont **pas** utilisés
+  ici : ils ne démarrent que si l'URL de la base n'est pas configurée, or `application.properties`
+  la définit.
+
+Docker doit donc tourner pour `./mvnw verify`.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Tester `UserService` | C'est le service que tu as écrit ; il a de la logique (doublon, recherche, modification). | Pas de test Mockito pour les 3 autres services : même schéma, rien de nouveau à montrer. |
+| `mock(...)` dans `@BeforeEach` | Lisible : on voit tout dans la méthode. | Pas de `@Mock` + `MockitoAnnotations.openMocks` (utilisé par `ProductServiceTest`) : une étape magique de plus à expliquer. |
+| Réutiliser `PostgreSqlTestResource` | Elle existe, marche, et correspond au tableau (« Test ? → TestContainers »). | Pas de H2 : le tableau tranche pour Testcontainers ; et H2 n'est pas PostgreSQL (dialecte, types). Pas de bascule vers les Dev Services : il faudrait retirer l'URL de la configuration, sans rien gagner. |
+
+**Notion de cours :** tests unitaires et d'intégration (sujet I311) ; mock ; Testcontainers.
+
+**Questions d'oral probables :**
+
+1. *Quelle différence entre un test unitaire et un test d'intégration dans ton projet ?* — Le test
+   unitaire teste une classe seule, ses dépendances sont des mocks (pas de base, pas de Quarkus) ;
+   le test d'intégration démarre l'application avec une vraie base PostgreSQL et envoie de vraies
+   requêtes HTTP.
+2. *À quoi sert `verify(repository, never()).persist(any())` ?* — À prouver que, en cas de
+   doublon, le service n'enregistre rien : on vérifie un **comportement** (un appel qui n'a pas
+   eu lieu), pas seulement une valeur renvoyée.
+3. *Pourquoi Testcontainers plutôt que H2 ?* — On teste contre le **même** SGBD qu'en production
+   (PostgreSQL), dans un conteneur jetable créé pour les tests. H2 peut accepter ou refuser des
+   choses différemment.
