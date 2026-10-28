@@ -268,7 +268,7 @@ d'espace ») ; le validateur est le **contrôleur** qui lit l'étiquette et fait
 | Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
 | --- | --- | --- |
 | Règle unique : `!value.contains(" ")` | Vérifiable sans expression régulière, une ligne à expliquer. | Pas de longueur 2–32, pas de liste de caractères autorisés : la règle devait rester simple. |
-| `@Target(ElementType.FIELD)` | On ne la pose que sur un champ. Dans un record, l'annotation écrite sur le composant `username` est recopiée par Java sur le **champ** privé (car `FIELD` est autorisé). | Pas de `METHOD`, `PARAMETER`, `TYPE_USE` comme dans `CheckCase` : on n'en a pas l'usage. Conséquence à connaître : l'annotation n'est **pas** recopiée sur le composant du record lui-même (voir 4.x Introspection). |
+| `@Target(ElementType.FIELD)` | On ne la pose que sur un champ. Dans un record, l'annotation écrite sur le composant `username` est recopiée par Java sur le **champ** privé (car `FIELD` est autorisé). | Pas de `METHOD`, `PARAMETER`, `TYPE_USE` comme dans `CheckCase` : on n'en a pas l'usage. Conséquence à connaître : l'annotation n'est **pas** recopiée sur le composant du record lui-même (voir 4.9 Introspection). |
 | `@Retention(RetentionPolicy.RUNTIME)` | Le validateur lit l'annotation **pendant l'exécution**, par introspection. Avec `SOURCE` (effacée après compilation) ou `CLASS` (dans le `.class` mais invisible à la réflexion), il ne la verrait pas. | — |
 | `@Constraint(validatedBy = ValidUsernameValidator.class)` | Obligatoire : c'est ce qui fait de l'annotation une contrainte Bean Validation. | — |
 | `@Documented` | Comme `CheckCase` : la contrainte apparaît dans la Javadoc des champs qui la portent. | Pas de `@Repeatable` (présent dans `CheckCase`) : la poser deux fois n'aurait aucun sens. |
@@ -417,7 +417,7 @@ Or il est dans le même projet. D'où deux étapes du `maven-compiler-plugin` :
 | `<annotationProcessors>` explicite | Depuis le JDK 23, `javac` n'exécute plus les processeurs trouvés automatiquement : il faut les déclarer (doc Maven). C'est aussi plus sûr : seul notre processeur s'exécute. | — |
 | `<excludes>` dans l'étape 2 | Sans lui, quand l'étape 2 recompile tout, elle efface d'abord les `.class` de **ses** sources, donc le processeur dont elle a besoin. | — |
 | `useIncrementalCompilation=false` dans l'étape 1 | Constaté en mode dev : les deux étapes partageaient le même suivi incrémental, et l'étape 2 croyait le source du processeur « supprimé » → elle effaçait son `.class` → « Annotation processor … not found ». L'étape 1 ne compile qu'un fichier : se passer du suivi ne coûte rien. | — |
-| `@Retention(SOURCE)` | Seul le compilateur lit `@DomainModel`. Elle n'existe plus dans le `.class` : c'est voulu, et c'est ce qu'on montre au test d'introspection (4.x). | Pas `RUNTIME` : inutile. |
+| `@Retention(SOURCE)` | Seul le compilateur lit `@DomainModel`. Elle n'existe plus dans le `.class` : c'est voulu, et c'est ce qu'on montre au test d'introspection (4.9). | Pas `RUNTIME` : inutile. |
 | `@Target(TYPE)` | Il n'existe pas de cible « record seulement » : `TYPE` couvre classes, interfaces, enums et records. D'où la vérification « est-ce un record ? » dans le processeur. | — |
 | Paquetage `org.acme.processor` | C'est un outil de compilation, pas une couche de l'application ; il reste hors de `org.acme.catalog.product`, que les tests ArchUnit de couches analysent. | — |
 | Annotation dans `domain` | Les records du domaine l'importent ; le domaine ne doit dépendre d'aucune autre couche (ArchUnit). Elle n'a aucune dépendance (Java pur). | — |
@@ -745,3 +745,64 @@ validation automatique « avant de persister une entité JPA ») ; cycle de vie 
    des messages par champ ; le domaine protège les règles métier quel que soit l'appelant ;
    l'entité est le dernier rempart avant la base. Chaque niveau peut être atteint sans passer par
    les autres.
+
+### 4.9 Introspection : lire une annotation à l'exécution (fonctionnalité 6 quater)
+
+**Fichier :** `src/test/java/org/acme/catalog/product/application/validation/IntrospectionTest.java`
+(3 tests).
+
+```java
+Field field = CreateUserRequest.class.getDeclaredField("username");
+ValidUsername annotation = field.getAnnotation(ValidUsername.class);   // non null
+annotation.message();   // "Username must not contain spaces"
+
+CreateUserRequest.class.getRecordComponents()[0].getAnnotation(ValidUsername.class);   // null
+User.class.getAnnotation(DomainModel.class);   // null
+```
+
+**Ce que montrent les 3 tests :**
+
+1. `@ValidUsername` (`RUNTIME`) se lit **sur le champ** `username` : c'est exactement ce que fait
+   le validateur Bean Validation (il reçoit l'instance, fait une introspection de sa classe, trouve
+   les annotations de contrainte, puis valide). On peut même lire ses éléments (`message()`).
+2. Elle n'est **pas** sur le **composant** du record : avec `@Target(FIELD)`, Java la recopie
+   seulement sur le champ. Pour la voir aussi via `getRecordComponents()`, il aurait fallu
+   ajouter `ElementType.RECORD_COMPONENT` au `@Target`. C'est pour cela que le test utilise
+   `getDeclaredField`.
+3. `@DomainModel` (`SOURCE`) est **invisible** à l'exécution : `getAnnotation` renvoie `null`
+   alors que `User` porte bien l'annotation dans son source. Elle a disparu à la compilation,
+   après avoir été lue par le processeur.
+
+**Tableau de synthèse à savoir par cœur :**
+
+| | Introspection | Processeur d'annotations |
+| --- | --- | --- |
+| Quand ? | À l'**exécution** | À la **compilation** (dans `javac`) |
+| Qui lit ? | Le code Java, par réflexion (`getAnnotation`) | Une classe qui étend `AbstractProcessor` |
+| Rétention minimale | `RUNTIME` | `SOURCE` suffit |
+| Ce qu'on manipule | des `Class`, `Field`, `Method` (code compilé) | des `Element` (représentation du source) |
+| Peut… | lire et agir sur les objets (valider, injecter…) | refuser de compiler (`Messager`), générer du code (`Filer`) |
+| Dans le projet | Bean Validation (`@ValidUsername`), Hibernate (`@Entity`), Quarkus (`@Path`) | `DomainModelProcessor` (`@DomainModel`) |
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Un test, pas du code de production | Consigne : montrer le mécanisme sur ton propre code ; un test se relance à volonté et prouve ce qu'il affirme. | Pas d'« introspecteur » maison dans l'application : Bean Validation le fait déjà. |
+| `getDeclaredField` (et non `getField`) | `getField` ne voit que les champs **publics** ; les champs d'un record sont **privés**. | — |
+| Test 2 sur `getRecordComponents()` | Il répond d'avance à la question « pourquoi pas `getRecordComponents()` ? » et prouve la règle de propagation des annotations des records. | Pas d'ajout de `RECORD_COMPONENT` au `@Target` : inutile pour Bean Validation. |
+
+**Notion de cours :** lecture des annotations par introspection (cours Annotations 1/2 :
+`getDeclaredMethods()`, `getAnnotation()`, `invoke()`), et lien avec les processeurs (cours 2/2).
+
+**Questions d'oral probables :**
+
+1. *Pourquoi une annotation en `RetentionPolicy.SOURCE` est-elle inutilisable par Hibernate ou
+   Quarkus ?* — Parce qu'ils lisent les annotations à l'exécution par réflexion ; une annotation
+   `SOURCE` n'est plus dans le `.class`, `getAnnotation` renvoie `null` (prouvé par le test 3).
+2. *Comment le validateur trouve-t-il `@ValidUsername` ?* — Par introspection : il prend la classe
+   de l'objet reçu, parcourt ses champs (`getDeclaredFields()`), appelle `getAnnotation` et
+   regarde quelles annotations sont des contraintes (`@Constraint`).
+3. *Pourquoi `getDeclaredField` et pas `getField` ?* — `getField` ne renvoie que les champs
+   publics, hérités compris ; `getDeclaredField` renvoie tous les champs déclarés dans la classe,
+   privés compris. Les champs d'un record sont privés.
