@@ -9,6 +9,7 @@ import java.util.UUID;
  * The guild is referenced by its identifier only: the domain does not know
  * about JPA relations.
  */
+@DomainModel
 public record Channel(UUID id, UUID guildId, String name, ChannelType type, String topic) {
 
     /**

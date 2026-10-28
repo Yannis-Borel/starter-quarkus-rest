@@ -9,6 +9,7 @@ import java.util.UUID;
  * The position orders roles in the guild hierarchy: the higher, the more
  * privileged.
  */
+@DomainModel
 public record Role(UUID id, UUID guildId, String name, int position) {
 
     /**

@@ -262,6 +262,45 @@
                 <configuration>
                     <parameters>true</parameters>
                 </configuration>
+                <!-- Annotation processor @DomainModel (org.acme.processor), in the same project.
+                     A processor must be compiled BEFORE the code it processes, hence two steps. -->
+                <executions>
+                    <!-- Step 1: compile only the processor, earlier in the lifecycle (process-sources),
+                         without running any processor -->
+                    <execution>
+                        <id>compile-processor</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>org/acme/processor/**</include>
+                            </includes>
+                            <proc>none</proc>
+                            <!-- No incremental bookkeeping for this step: in quarkus:dev both steps
+                                 share it, and step 2 would then think the processor source was
+                                 removed and delete its class -->
+                            <useIncrementalCompilation>false</useIncrementalCompilation>
+                        </configuration>
+                    </execution>
+                    <!-- Step 2: the usual compilation, which runs our processor
+                         (found on the classpath, in target/classes, thanks to step 1).
+                         The processor sources are excluded: otherwise, when this step decides to
+                         recompile everything (e.g. in quarkus:dev), it first deletes the processor
+                         class it is about to need. -->
+                    <execution>
+                        <id>default-compile</id>
+                        <configuration>
+                            <excludes>
+                                <exclude>org/acme/processor/**</exclude>
+                            </excludes>
+                            <annotationProcessors>
+                                <annotationProcessor>org.acme.processor.DomainModelProcessor</annotationProcessor>
+                            </annotationProcessors>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Surefire / Unit Tests -->

@@ -17,6 +17,7 @@ import java.util.UUID;
  * à la question d'oral « créez une classe Personne »). Aucune annotation de
  * framework ici : le domaine ne dépend de rien (vérifié par ArchUnit).
  */
+@DomainModel
 public record User(UUID id, String username, String displayName, Instant joinedAt) {
 
     /**

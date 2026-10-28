@@ -329,3 +329,99 @@ asynchrone avec Reactor (`Mono` : 0 ou 1 valeur à venir ; rien ne se passe avan
 3. *Quelle différence entre `subscribe()` et `block()` sur un `Mono` ?* — `block()` attend le
    résultat en bloquant le thread courant ; `subscribe()` lance le traitement et rend la main
    tout de suite, le résultat arrivera plus tard. Au démarrage on ne veut pas bloquer Quarkus.
+
+### 4.4 Processeur d'annotations `@DomainModel` (fonctionnalité 4)
+
+**Fichiers :**
+
+| Fichier | Rôle | Annotations |
+| --- | --- | --- |
+| `domain/DomainModel.java` | L'annotation, posée sur `User`, `Guild`, `Channel`, `Role`. | `@Target(ElementType.TYPE)`, `@Retention(RetentionPolicy.SOURCE)` |
+| `src/main/java/org/acme/processor/DomainModelProcessor.java` | Le processeur : **vérifie** (erreur si pas un record) et **génère** `XxxFields.java`. | `@SupportedAnnotationTypes("…DomainModel")`, `@SupportedSourceVersion(RELEASE_21)` |
+| `pom.xml` (plugin `maven-compiler-plugin`) | Compile le processeur **avant** le reste et l'active. | — |
+| `src/test/java/org/acme/processor/DomainModelProcessorTest.java` | Lance `javac` depuis le test : classe ordinaire → erreur ; record → `GoodFields.java` généré. | — |
+
+Fichiers générés (dans `target/generated-sources/annotations/org/acme/catalog/product/domain/`) :
+`UserFields`, `GuildFields`, `ChannelFields`, `RoleFields`. Exemple réel :
+
+```java
+public final class UserFields {
+    public static final String ID = "id";
+    public static final String USERNAME = "username";
+    public static final String DISPLAYNAME = "displayName";
+    public static final String JOINEDAT = "joinedAt";
+}
+```
+
+**Analogie.** L'introspection, c'est un contrôleur qui vient vérifier le restaurant **pendant le
+service** (l'application tourne). Le processeur d'annotations, c'est l'architecte qui relit les
+**plans avant la construction** (la compilation) : il peut refuser un plan, ou dessiner une pièce
+en plus, mais il n'est plus là une fois le bâtiment ouvert.
+
+**Comment ça marche (vocabulaire du cours) :**
+1. `javac` compile le projet. Il voit `@DomainModel` et sait (grâce à `-processor`, voir le pom)
+   que `DomainModelProcessor` la traite : `@SupportedAnnotationTypes` le dit.
+2. Il appelle `process(annotations, roundEnv)`. Le `RoundEnvironment` décrit le « tour » en cours.
+   `roundEnv.getElementsAnnotatedWith(annotation)` renvoie les éléments du code (classes,
+   records…) qui portent l'annotation. Ce ne sont **pas** des objets `Class` (le code n'est pas
+   encore compilé) mais des `Element`, une représentation du source.
+3. **Vérifier** : si `element.getKind() != ElementKind.RECORD`, le **`Messager`**
+   (`processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR, …, element)`) émet une erreur
+   attachée à cet élément. `javac` affiche l'erreur et la compilation échoue.
+4. **Générer** : sinon, le **`Filer`** (`processingEnv.getFiler().createSourceFile(...)`) crée un
+   nouveau fichier source ; on l'écrit avec un `PrintWriter`, une ligne par composant
+   (`getRecordComponents()`).
+5. Un fichier a été généré : `javac` refait un tour (round) pour compiler ce nouveau fichier.
+   `XxxFields` ne porte pas `@DomainModel`, donc le processeur n'a rien à faire : **pas de boucle
+   infinie** (bonne pratique citée dans le cours).
+6. `process` renvoie `true` : l'annotation est « réclamée », aucun autre processeur ne la traite.
+
+**La configuration Maven (le point le plus technique) :**
+
+Un processeur doit exister **sous forme compilée** avant la compilation du code qu'il traite.
+Or il est dans le même projet. D'où deux étapes du `maven-compiler-plugin` :
+
+| Étape | Phase Maven | Ce qu'elle compile | Réglages |
+| --- | --- | --- | --- |
+| `compile-processor` | `process-sources` (avant `compile`) | seulement `org/acme/processor/**` (`<includes>`) | `<proc>none</proc>` (aucun processeur pendant cette étape) ; `<useIncrementalCompilation>false</useIncrementalCompilation>` |
+| `default-compile` (la compilation habituelle) | `compile` | tout **sauf** `org/acme/processor/**` (`<excludes>`) | `<annotationProcessors>` = `org.acme.processor.DomainModelProcessor` (option `-processor` de javac ; le processeur est trouvé sur le classpath, dans `target/classes`, grâce à l'étape 1) |
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Deux exécutions dans le même projet | Le plus simple qui marche : aucun déplacement de fichiers, aucune nouvelle dépendance. Paramètres tous documentés (`includes`, `excludes`, `proc`, `annotationProcessors`, doc officielle du maven-compiler-plugin). La doc Maven ne décrit **pas** ce montage précis : je l'ai vérifié à la main (build complet, mode dev depuis `clean`, rechargement à chaud). | **Pas** de projet Maven multi-modules (un module « processeur » + un module « application ») : c'est la solution classique, mais elle oblige à déplacer tout le code, le `pom` et la CI. Pas d'AutoService ni de fichier `META-INF/services` : on déclare le processeur explicitement. |
+| `<annotationProcessors>` explicite | Depuis le JDK 23, `javac` n'exécute plus les processeurs trouvés automatiquement : il faut les déclarer (doc Maven). C'est aussi plus sûr : seul notre processeur s'exécute. | — |
+| `<excludes>` dans l'étape 2 | Sans lui, quand l'étape 2 recompile tout, elle efface d'abord les `.class` de **ses** sources, donc le processeur dont elle a besoin. | — |
+| `useIncrementalCompilation=false` dans l'étape 1 | Constaté en mode dev : les deux étapes partageaient le même suivi incrémental, et l'étape 2 croyait le source du processeur « supprimé » → elle effaçait son `.class` → « Annotation processor … not found ». L'étape 1 ne compile qu'un fichier : se passer du suivi ne coûte rien. | — |
+| `@Retention(SOURCE)` | Seul le compilateur lit `@DomainModel`. Elle n'existe plus dans le `.class` : c'est voulu, et c'est ce qu'on montre au test d'introspection (4.x). | Pas `RUNTIME` : inutile. |
+| `@Target(TYPE)` | Il n'existe pas de cible « record seulement » : `TYPE` couvre classes, interfaces, enums et records. D'où la vérification « est-ce un record ? » dans le processeur. | — |
+| Paquetage `org.acme.processor` | C'est un outil de compilation, pas une couche de l'application ; il reste hors de `org.acme.catalog.product`, que les tests ArchUnit de couches analysent. | — |
+| Annotation dans `domain` | Les records du domaine l'importent ; le domaine ne doit dépendre d'aucune autre couche (ArchUnit). Elle n'a aucune dépendance (Java pur). | — |
+| Générer `XxxFields` (constantes des noms de composants) | Le plus petit fichier utile : il remplace des chaînes écrites à la main (comme `"username"` dans `find("username", …)`) par des constantes vérifiées par le compilateur. | Pas de génération de DAO, de builder ni de getters : plus long à écrire et à expliquer. |
+| `XxxFields` **n'est pas utilisée** dans le code principal | Testé puis retiré : ton IDE (VS Code) compile avec son propre compilateur (Eclipse JDT), qui n'exécute pas notre processeur. Il ne voyait pas `UserFields`, marquait `UserRepository` en erreur et écrivait un `.class` cassé dans `target/classes`, ce qui a fait échouer les tests. La génération est prouvée par `DomainModelProcessorTest`. | — |
+| `@DomainModel` sur les 4 records Discord seulement | Ce sont nos modèles. | Pas sur `Product` (code de référence du starter, laissé intact). |
+
+**Limite connue :** dans VS Code, les classes `XxxFields` peuvent apparaître inconnues ; seul
+Maven les génère. **Non vérifié** : si un **nouveau** record `@DomainModel` créé pendant
+`quarkus:dev` obtient sa classe `XxxFields` sans relancer Maven (le rechargement d'un record
+existant, lui, a été vérifié).
+
+**Notion de cours :** processeurs d'annotations (cours Annotations 2/2 de M. Bruno) ; rétention
+`SOURCE` / `CLASS` / `RUNTIME` (cours Annotations 1/2). Rappel des trois rétentions :
+`SOURCE` = effacée à la compilation (`@Override`, `@DomainModel`, celles de Lombok) ;
+`CLASS` = dans le `.class` mais invisible à la réflexion (valeur par défaut) ;
+`RUNTIME` = lisible à l'exécution (Bean Validation, `@Entity`, `@Path`).
+
+**Questions d'oral probables :**
+
+1. *Quelle différence entre un processeur d'annotations et l'introspection ?* — Le processeur lit
+   les annotations **à la compilation**, dans `javac` ; il se contente de la rétention `SOURCE`.
+   Il peut produire des erreurs de compilation ou générer du code. L'introspection lit les
+   annotations **à l'exécution**, par réflexion (`getAnnotation`) ; elle exige `RUNTIME`.
+2. *À quoi servent `Messager` et `Filer` ?* — Le `Messager` signale des messages au compilateur
+   (une erreur de type `Diagnostic.Kind.ERROR` fait échouer la compilation) ; le `Filer` crée de
+   nouveaux fichiers (sources, classes, ressources) que le compilateur prend ensuite en compte.
+3. *Pourquoi faut-il compiler le processeur avant le reste, et comment fais-tu avec Maven ?* —
+   Parce que `javac` doit pouvoir **exécuter** le processeur pendant qu'il compile notre code.
+   J'ai deux exécutions du `maven-compiler-plugin` : l'une compile seulement le processeur plus
+   tôt (phase `process-sources`), l'autre compile le reste en déclarant le processeur avec
+   `<annotationProcessors>`.
