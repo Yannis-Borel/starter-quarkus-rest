@@ -268,3 +268,64 @@ exemple `CheckCase` / `CheckCaseValidator`) ; rétention des annotations (cours 
    dans le bytecode mais pas accessible par réflexion.
 3. *Que renvoie `isValid` pour `null`, et pourquoi ?* — `true` : la nullité est déléguée à
    `@NotNull` / `@NotBlank`, comme dans le cours. Une contrainte = une règle.
+
+### 4.3 Bot Discord « ping-pong » (fonctionnalité 3)
+
+**Fichiers** (`infrastructure/discord/`) :
+
+| Fichier | Rôle | Annotations |
+| --- | --- | --- |
+| `DiscordBot.java` | **Interface** : une seule méthode `start(String token)`. Le reste de l'application ne connaît qu'elle. | aucune |
+| `Discord4jBot.java` | **Implémentation** avec Discord4J : se connecte, écoute `MessageCreateEvent`, répond `pong!` à `!ping`. La logique de réponse est isolée dans `answer(String)`, testable sans Discord. | `@ApplicationScoped` ; `@PreDestroy` (ferme la connexion quand le bean est détruit) |
+| `DiscordBotStartup.java` | Au démarrage de Quarkus, démarre le bot **si** un jeton est configuré, sinon écrit un avertissement. Ne dépend que de l'interface. | `@ApplicationScoped` ; `@Observes StartupEvent` (méthode appelée au démarrage) ; `@ConfigProperty(name = "discord.token")` (lit la configuration) ; `@Inject` |
+
+Tests : `DiscordBotStartupTest` (Mockito : sans jeton → `start` jamais appelé ; avec jeton →
+appelé ; si `start` échoue → l'application continue) et `Discord4jBotTest` (`answer`).
+Documentation pour toi : `docs/discord-bot.md` (portail Discord et lancement).
+
+**Analogie.** L'interface `DiscordBot` est une **prise électrique** : `DiscordBotStartup` branche
+« quelque chose qui sait démarrer ». En production on branche le vrai bot Discord4J ; dans un test
+on branche un faux (un *mock*) qui note seulement s'il a été appelé.
+
+**Comment ça marche :**
+1. Quarkus démarre et envoie l'événement `StartupEvent` ; `DiscordBotStartup.onStart` le reçoit.
+2. Le jeton vient de la propriété `discord.token`. MicroProfile Config la remplit
+   automatiquement depuis la variable d'environnement `DISCORD_TOKEN` (règle : points remplacés
+   par `_`, majuscules). Si elle est absente, l'`Optional` est vide → avertissement, fin.
+3. Sinon, `Discord4jBot.start(token)` construit la connexion : `DiscordClient.create(token)`
+   → `.gateway()` → `.setEnabledIntents(...)` → `.withGateway(gateway -> gateway.on(MessageCreateEvent.class, this::onMessage))`
+   → `.subscribe(...)`.
+4. À chaque message, `onMessage` appelle `answer(contenu)` ; si c'est `"pong!"`, il récupère le
+   salon (`getChannel()`, un `Mono`) puis envoie la réponse (`flatMap(channel -> channel.createMessage(answer))`).
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Interface + implémentation | Exigence du sujet (« abstraction mockable ») : on teste le démarrage sans réseau. | Pas de couche « service de bot » ni de « port » supplémentaire : une interface suffit. |
+| Une 3e classe `DiscordBotStartup` | Il faut quelqu'un qui **utilise** l'interface ; sinon elle ne servirait à rien et il n'y aurait rien à mocker. C'est elle qu'on teste avec le mock. | Je n'ai pas mis le démarrage dans `Discord4jBot` : on ne pourrait plus le tester sans Discord. |
+| Paquetage `infrastructure/discord` | Discord est une technique extérieure, comme la base de données : place naturelle dans l'infrastructure. | — |
+| Discord4J **3.3.0**, pas la 3.3.3 (la plus récente) | La 3.3.3 tire Reactor Netty 1.3.6, qui exige **Netty 4.2**. Quarkus 3.31 impose **Netty 4.1.130** (son BOM). Résultat constaté : `NoSuchFieldError … SslContext` au démarrage. La 3.3.0 utilise Reactor Netty 1.1.31, de la génération Netty 4.1 : compatible. L'API utilisée est la même. | Je n'ai pas forcé Netty 4.2 : cela aurait cassé Quarkus. |
+| `subscribe()` et non `block()` (l'exemple du README fait `login().block()`) | `block()` arrêterait le démarrage de Quarkus le temps de la connexion à Discord, et une erreur de connexion le ferait planter. | — |
+| `subscribe(null, error -> LOG.error(...))` | Si Discord refuse le jeton plus tard (401), on écrit un message clair au lieu de l'erreur générique de Reactor « ErrorCallbackNotImplemented ». | — |
+| `try/catch` autour de `bot.start` | Discord4J vérifie le **format** du jeton tout de suite et lance `IllegalArgumentException`. Sans le `catch`, un jeton mal copié empêchait l'API REST de démarrer (constaté). Le bot est un bonus : il ne doit pas casser le reste. | — |
+| Intent `MESSAGE_CONTENT` | Depuis 2022, Discord envoie un contenu vide aux bots qui n'ont pas cet intent privilégié (README de Discord4J). | — |
+| `@PreDestroy` + `dispose()` | En mode dev, le rechargement à chaud recrée les beans : sans fermeture, l'ancien bot resterait connecté et répondrait en double. | — |
+| 2 `ignoreDependency` dans `LayerArchitecture` (`discord4j..`, `reactor..`) | Ce test refuse toute dépendance vers un paquetage non listé ; le starter ajoute déjà ainsi Mutiny, Jackson, SLF4J. Ta décision du 28/10. | Le bot n'est pas sorti des 4 couches. |
+| Jeton par variable d'environnement + `.env.example` | Jamais de secret dans git (sujet). `.env` est déjà dans le `.gitignore`. | — |
+
+**Notion de cours :** programmation vers une interface, patron Adapter, mock Mockito ; CDI
+(`@ApplicationScoped`, `@Observes`, `@PreDestroy`) ; MicroProfile Config ; programmation
+asynchrone avec Reactor (`Mono` : 0 ou 1 valeur à venir ; rien ne se passe avant `subscribe()`).
+
+**Questions d'oral probables :**
+
+1. *Pourquoi une interface `DiscordBot` ?* — Pour que `DiscordBotStartup` ne dépende pas de
+   Discord4J : dans le test, je passe un mock Mockito et je vérifie avec `verify(bot).start(...)`
+   ou `verify(bot, never())` sans me connecter à Discord. C'est l'inversion des dépendances.
+2. *Que se passe-t-il si `DISCORD_TOKEN` n'est pas défini ?* — L'`Optional<String>` injecté par
+   `@ConfigProperty` est vide : on écrit un avertissement et on ne démarre pas le bot. L'API, les
+   tests et la CI fonctionnent normalement.
+3. *Quelle différence entre `subscribe()` et `block()` sur un `Mono` ?* — `block()` attend le
+   résultat en bloquant le thread courant ; `subscribe()` lance le traitement et rend la main
+   tout de suite, le résultat arrivera plus tard. Au démarrage on ne veut pas bloquer Quarkus.
