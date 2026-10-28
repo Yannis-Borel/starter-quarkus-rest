@@ -4,14 +4,24 @@ import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
 
+/**
+ * Entité JPA : correspondance entre un utilisateur et une ligne de la table
+ * {@code users}.
+ *
+ * <p>
+ * Elle ne contient aucune règle métier (elles sont dans le record
+ * {@code User}). Elle a un constructeur sans argument et des setters parce que
+ * Hibernate en a besoin pour recréer l'objet depuis la base.
+ */
 @Entity
 @Table(name = "users")
 public class UserEntity {
 
-
+    /** Identifiant généré par l'application ({@code User.of}), pas de {@code @GeneratedValue}. */
     @Id
     private UUID id;
 
+    /** Pseudo : unique et obligatoire au niveau de la base (contrainte SQL). */
     @Column(unique = true, nullable = false)
     private String username;
 
@@ -21,20 +31,24 @@ public class UserEntity {
     @Column(nullable = false)
     private Instant joinedAt;
 
-
-
-
-
+    /** Constructeur sans argument exigé par la spécification JPA. */
     public UserEntity() {
     }
 
-  public UserEntity(UUID id, String username, String displayName, Instant joinedAt ) {
+    /**
+     * Constructeur pratique utilisé par {@code UserMapper}.
+     *
+     * @param id          l'identifiant
+     * @param username    le pseudo
+     * @param displayName le nom affiché
+     * @param joinedAt    la date d'arrivée
+     */
+    public UserEntity(UUID id, String username, String displayName, Instant joinedAt) {
         this.id = id;
         this.username = username;
         this.displayName = displayName;
         this.joinedAt = joinedAt;
     }
-
 
     public UUID getId() {
         return id;
@@ -43,7 +57,6 @@ public class UserEntity {
     public void setId(UUID id) {
         this.id = id;
     }
-
 
     public String getUsername() {
         return username;
@@ -68,5 +81,4 @@ public class UserEntity {
     public void setJoinedAt(Instant joinedAt) {
         this.joinedAt = joinedAt;
     }
-
- }
+}

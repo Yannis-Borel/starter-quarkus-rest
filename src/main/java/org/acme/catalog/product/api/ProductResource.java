@@ -111,4 +111,3 @@ public class ProductResource {
         return Response.noContent().build();
     }
 }
-;
