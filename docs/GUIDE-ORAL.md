@@ -693,3 +693,55 @@ Bean Validation : `ConstraintViolation`, chemin de propriété, message.
 3. *Pourquoi ne jamais renvoyer le message d'une exception imprévue au client ?* — Il peut
    contenir des détails internes (requête SQL, nom de classe, pile d'appels) utiles à un attaquant.
    On renvoie un message générique et on écrit la vraie erreur dans les logs pour les développeurs.
+
+### 4.8 JPA + Bean Validation (fonctionnalité 6 ter)
+
+**Ce qui a été fait :** `@NotBlank` sur le champ `username` de `UserEntity`, et le test
+`infrastructure/persistence/UserEntityValidationIT` : il crée une `UserEntity` avec
+`username = "  "`, appelle `repository.persist(...)` puis `repository.flush()`, et vérifie qu'une
+`jakarta.validation.ConstraintViolationException` est lancée.
+
+**Contre-épreuve faite :** en retirant `@NotBlank`, le test **échoue** (la base accepte `"  "`,
+qui n'est pas `NULL`). C'est donc bien Hibernate qui applique la contrainte Bean Validation.
+
+**Comment ça marche** (doc Quarkus « Hibernate ORM », section *Validation*, version 3.31) : quand
+l'extension `quarkus-hibernate-validator` est présente, la propriété
+`quarkus.hibernate-orm.validation.mode` vaut `auto` par défaut, ce qui active deux choses :
+- **`callback`** : Hibernate valide l'entité lors des événements de son cycle de vie (avant
+  l'insertion et la mise à jour) et lance `ConstraintViolationException` si une contrainte échoue ;
+- **`ddl`** : certaines contraintes influencent le schéma généré (par exemple `@NotNull` → `NOT
+  NULL`, `@Size(max = 50)` → `varchar(50)`).
+
+C'est le sens de la note du cours : « JPA produit des erreurs en utilisant les annotations
+Bean Validation ».
+
+**Analogie.** Bean Validation sur le DTO, c'est le **videur à l'entrée** du restaurant ; sur
+l'entité, c'est le **contrôle à la porte de la réserve** : même si quelqu'un est passé par une
+autre porte (un test, un script, un futur bot), la réserve refuse une marchandise non conforme.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| `@NotBlank` sur `UserEntity.username` | La règle existe déjà dans le DTO et le domaine : on ne change pas le comportement de l'API, on montre seulement le mécanisme JPA. `@NotBlank` refuse `"  "`, que `nullable = false` (SQL) laisse passer. | Pas de `@Size(max = 32)` : une longueur maximale **seulement** dans l'entité serait vérifiée au commit de la transaction. L'exception risquerait alors d'arriver enveloppée (pas vérifié), donc en 500 au lieu de 400. |
+| `persist` **puis** `flush` dans le test | Comme l'exemple officiel de la doc Quarkus : `flush()` force l'envoi en base tout de suite, donc la validation a lieu pendant le test. | — |
+| `@TestTransaction` | Annotation de Quarkus (`io.quarkus.test.TestTransaction`) : le test s'exécute dans une transaction **annulée** (rollback) à la fin ; rien ne reste en base. | Pas de `@Transactional` : il tenterait un commit à la fin d'une transaction en échec. |
+| Test d'intégration (`…IT`, `@QuarkusTest`) | Il faut un vrai Hibernate et une vraie base (PostgreSQL de Testcontainers). | — |
+
+**Notion de cours :** Bean Validation, intégration avec JPA (cours Bean Validation de M. Bruno :
+validation automatique « avant de persister une entité JPA ») ; cycle de vie d'une entité.
+
+**Questions d'oral probables :**
+
+1. *Comment JPA utilise-t-il les annotations Bean Validation ?* — Hibernate valide l'entité avant
+   de l'insérer ou de la mettre à jour ; si une contrainte échoue, il lance une
+   `ConstraintViolationException` et rien n'est écrit. Il s'en sert aussi pour le schéma
+   (`@NotNull` → colonne `NOT NULL`).
+2. *Quelle différence entre `@Column(nullable = false)` et `@NotNull` ?* — `nullable = false` est
+   une instruction pour la **base** (contrainte SQL dans le DDL), vérifiée par PostgreSQL.
+   `@NotNull` est une contrainte **Bean Validation**, vérifiée en Java par Hibernate Validator
+   avant l'envoi en base, avec un message clair.
+3. *Pourquoi valider à trois endroits (DTO, domaine, entité) ?* — Le DTO protège l'API et donne
+   des messages par champ ; le domaine protège les règles métier quel que soit l'appelant ;
+   l'entité est le dernier rempart avant la base. Chaque niveau peut être atteint sans passer par
+   les autres.

@@ -1,6 +1,7 @@
 package org.acme.catalog.product.infrastructure.persistence;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -21,7 +22,16 @@ public class UserEntity {
     @Id
     private UUID id;
 
-    /** Pseudo : unique et obligatoire au niveau de la base (contrainte SQL). */
+    /**
+     * Pseudo : unique et obligatoire au niveau de la base (contrainte SQL).
+     *
+     * <p>
+     * {@code @NotBlank} est une contrainte Bean Validation posée sur une
+     * entité JPA : Hibernate la vérifie lui-même avant d'écrire en base et
+     * refuse l'entité avec une {@code ConstraintViolationException} (notion
+     * de cours : intégration JPA / Bean Validation).
+     */
+    @NotBlank
     @Column(unique = true, nullable = false)
     private String username;
 
