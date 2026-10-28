@@ -11,7 +11,9 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.acme.catalog.product.application.GuildService;
+import org.acme.catalog.product.application.InvitationService;
 import org.acme.catalog.product.application.dto.GuildDTO;
+import org.acme.catalog.product.application.dto.InvitationDTO;
 import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
 import org.acme.catalog.product.application.dto.usecases.GuildUpdateQuery;
@@ -31,10 +33,12 @@ import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 public class GuildResource {
 
     private final GuildService service;
+    private final InvitationService invitationService;
 
     @Inject
-    public GuildResource(GuildService service) {
+    public GuildResource(GuildService service, InvitationService invitationService) {
         this.service = service;
+        this.invitationService = invitationService;
     }
 
     /**
@@ -89,6 +93,28 @@ public class GuildResource {
     @APIResponse(responseCode = "404", description = "Guild not found")
     public List<UserDTO> getMembers(@PathParam("id") UUID id) {
         return service.getMembers(id);
+    }
+
+    /**
+     * {@code POST /api/v1/guilds/{id}/invitations} : crée un lien d'invitation
+     * valable 7 jours. Pas de corps de requête : {@code @Consumes(WILDCARD)}
+     * remplace le {@code @Consumes(JSON)} de la classe, sinon un {@code POST}
+     * sans {@code Content-Type} serait refusé (415).
+     *
+     * @param id the guild identifier
+     * @return 201 Created with the invitation (its code)
+     */
+    @POST
+    @Path("/{id}/invitations")
+    @Consumes(MediaType.WILDCARD)
+    @Operation(summary = "Create an invitation link to the guild (valid 7 days)")
+    @APIResponse(responseCode = "201", description = "Invitation created")
+    @APIResponse(responseCode = "404", description = "Guild not found")
+    public Response createInvitation(@PathParam("id") UUID id) {
+        InvitationDTO created = invitationService.create(id);
+        return Response.status(Response.Status.CREATED)
+                .entity(created)
+                .build();
     }
 
     /**

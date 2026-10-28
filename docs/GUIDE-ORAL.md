@@ -926,3 +926,61 @@ garde seulement une copie de ses clubs (côté inverse), qui ne fait pas foi.
    la table de jointure ne contient que les deux clés étrangères. Pour ajouter une donnée sur le
    lien, on crée une entité `Membership` : la `@ManyToMany` devient deux `@ManyToOne`
    (`Membership` → `User` et `Membership` → `Guild`), et chaque côté a une `@OneToMany` inverse.
+
+### 4.12 Lien d'invitation « Invitation Link » (fonctionnalité 8, partie 2)
+
+**Endpoints :**
+
+| Requête | Corps | Réponse | Codes |
+| --- | --- | --- | --- |
+| `POST /api/v1/guilds/{id}/invitations` | aucun | `{"code": "3f2a9c1b", "guildId": "…", "expiresAt": "…"}` | 201, 404 (guilde) |
+| `POST /api/v1/invitations/{code}/join` | `{"username": "Mirnis84"}` | la guilde rejointe (`GuildDTO`) | 200, 400, 404 (code ou utilisateur), **410** (expiré) |
+
+**Fichiers (même schéma 4 couches que les autres entités) :**
+
+| Couche | Fichier | Rôle |
+| --- | --- | --- |
+| domain | `Invitation` | Record : id, code, guildId, expiresAt. `of(guildId)` génère le code (8 premiers caractères d'un UUID) et l'expiration (`now + VALIDITY`, 7 jours). Règle métier `isExpired(now)`. `@DomainModel`. |
+| infrastructure | `InvitationEntity` | Table `invitations` ; `@ManyToOne` vers la guilde (`guild_id`) ; `code` `unique`. |
+| infrastructure | `InvitationRepository` | `findByCode`. |
+| infrastructure | `InvitationMapper` | `toDto`, `toEntity(invitation, guild)`, `toDomain`. |
+| infrastructure | `GuildEntity.invitations` | `@OneToMany(mappedBy, cascade = ALL, orphanRemoval = true)` : supprimés avec la guilde. |
+| application | `InvitationService` | `create(guildId)` ; `join(code, request)` : 404, puis 410 si expiré, puis 404 si l'utilisateur n'existe pas, puis `guild.getMembers().add(user)`. |
+| application | `InvitationDTO`, `usecases/JoinGuildRequest` | JSON renvoyé / reçu. |
+| application | `InvitationExpiredException` | Exception dédiée au lien expiré. |
+| api | `InvitationResource` (`/api/v1/invitations`), `GuildResource.createInvitation` | Les deux endpoints. |
+| api | `error/GoneMapper` | `InvitationExpiredException` → 410, au format commun. |
+
+Tests : `domain/InvitationTest` (code, durée, `isExpired`) et `api/InvitationResourceIT` (créer →
+rejoindre → membre visible → suppression du membre ; code inconnu 404 ; lien expiré 410, en
+enregistrant directement en base un lien expiré avec `QuarkusTransaction.requiringNew().run(...)`).
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Une **entité** `Invitation`, pas un champ de `Guild` | Une guilde peut avoir plusieurs liens en même temps, chacun avec sa date d'expiration. | Pas de nombre d'utilisations maximal, pas de révocation, pas de « créé par » : consigne « le minimum complet ». |
+| Code = 8 premiers caractères d'un UUID aléatoire | Court à partager, aucune bibliothèque. L'unicité est garantie par `unique = true` en base. | Pas de nouvel essai en cas de collision (très improbable) : la contrainte SQL ferait échouer la création (500), on pourrait alors réessayer. |
+| Durée fixe de 7 jours (`VALIDITY`) | La durée par défaut des invitations Discord ; aucun corps à envoyer à la création. | Pas de durée choisie par le client : paramètre optionnel, hors consigne. |
+| `isExpired(Instant now)` dans le **domaine** | C'est une règle métier ; recevoir `now` en paramètre la rend testable sans attendre 7 jours. | — |
+| **410 Gone** pour un lien expiré | 410 veut dire « la ressource a existé mais n'est plus disponible », exactement le cas d'un lien expiré. 400 voudrait dire « ta requête est mal formée », ce qui est faux : la requête est correcte. | Coût : une exception (`InvitationExpiredException`) et un mapper (`GoneMapper`), car aucune exception Java standard ne signifie « expiré ». Le service reste indépendant de HTTP. |
+| `join` reçoit le pseudo | Les utilisateurs sont identifiés par pseudo dans toute l'API (`/users/{username}`). | Pas d'authentification : le projet n'en a pas, on dit qui rejoint dans le corps. |
+| Rejoindre deux fois → 200 sans doublon | `members` est un `Set` : `add` d'un membre déjà présent ne fait rien. | Pas de 409 « déjà membre » : non demandé, et le résultat voulu (être membre) est atteint. |
+| `POST` de création **sans corps** + `@Consumes(MediaType.WILDCARD)` | Constaté : la classe déclare `@Consumes(JSON)`, et un `POST` sans `Content-Type` (Swagger UI, `curl -X POST`) recevait 415. L'annotation de la méthode remplace celle de la classe. | — |
+| `POST /invitations/{code}/join` (et non `PUT`) | « Rejoindre » est une **action** qui change l'état ; on suit l'énoncé du §0. | — |
+
+**Notion de cours :** modélisation (entité, relation `@ManyToOne` / `@OneToMany` avec cascade),
+règles métier dans le domaine, codes HTTP (410 vs 400 vs 404), `ExceptionMapper`.
+
+**Questions d'oral probables :**
+
+1. *Pourquoi 410 et pas 404 ou 400 pour un lien expiré ?* — 404 : la ressource n'existe pas (code
+   inconnu). 400 : la requête est mal formée. 410 Gone : la ressource **a existé** mais n'est plus
+   utilisable, c'est le cas d'un lien expiré. Le client peut afficher « lien expiré, demandez-en
+   un nouveau ».
+2. *Où est la règle « expiré » et pourquoi reçoit-elle `now` en paramètre ?* — Dans le record
+   `Invitation` (domaine) : `isExpired(Instant now)`. Avec `now` en paramètre, le test vérifie la
+   règle avec une date dans 7 jours, sans attendre et sans dépendre de l'horloge.
+3. *Que se passe-t-il en base quand un utilisateur rejoint une guilde ?* — Le service ajoute
+   l'utilisateur au `Set` `members` de la `GuildEntity` (côté propriétaire, entité managée) ; au
+   commit, Hibernate insère une ligne `(guild_id, user_id)` dans `guild_members`.

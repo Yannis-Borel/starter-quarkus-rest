@@ -37,6 +37,10 @@ public class GuildEntity {
     @OneToMany(mappedBy = "guild", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RoleEntity> roles = new ArrayList<>();
 
+    /** Liens d'invitation : supprimés avec la guilde, comme les salons et les rôles. */
+    @OneToMany(mappedBy = "guild", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<InvitationEntity> invitations = new ArrayList<>();
+
     /**
      * Membres de la guilde : relation plusieurs-à-plusieurs avec les
      * utilisateurs. La guilde est le côté <b>propriétaire</b> : c'est elle qui
