@@ -56,4 +56,15 @@ public record User(UUID id, String username, String displayName, Instant joinedA
     public static User of(String username, String displayName) {
         return new User(UUID.randomUUID(), username, displayName, Instant.now());
     }
+
+    /**
+     * Wither : renvoie un <b>nouvel</b> utilisateur avec un autre nom affiché
+     * (le record est immuable). Le constructeur compact revérifie les règles.
+     *
+     * @param newDisplayName le nouveau nom affiché
+     * @return une copie modifiée
+     */
+    public User withDisplayName(String newDisplayName) {
+        return new User(id, username, newDisplayName, joinedAt);
+    }
 }

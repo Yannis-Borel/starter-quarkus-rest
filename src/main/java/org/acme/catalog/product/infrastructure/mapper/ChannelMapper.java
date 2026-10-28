@@ -43,4 +43,27 @@ public final class ChannelMapper {
         var domain = Channel.of(guild.getId(), request.name(), request.type(), request.topic());
         return new ChannelEntity(domain.id(), guild, domain.name(), domain.type(), domain.topic());
     }
+
+    /**
+     * Entité → domaine : recrée le record à partir de la ligne lue en base.
+     *
+     * @param entity la ligne lue en base
+     * @return le salon du domaine
+     */
+    public static Channel toDomain(ChannelEntity entity) {
+        return new Channel(entity.getId(), entity.getGuild().getId(), entity.getName(), entity.getType(),
+                entity.getTopic());
+    }
+
+    /**
+     * Recopie dans l'entité les champs modifiables. L'entité est « managée » :
+     * Hibernate fera l'{@code UPDATE} au commit, sans {@code persist}.
+     *
+     * @param entity  l'entité à mettre à jour
+     * @param channel le salon modifié et validé
+     */
+    public static void updateEntity(ChannelEntity entity, Channel channel) {
+        entity.setName(channel.name());
+        entity.setTopic(channel.topic());
+    }
 }

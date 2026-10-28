@@ -11,6 +11,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.acme.catalog.product.application.ChannelService;
 import org.acme.catalog.product.application.dto.ChannelDTO;
+import org.acme.catalog.product.application.dto.usecases.ChannelUpdateQuery;
 import org.acme.catalog.product.application.dto.usecases.CreateChannelRequest;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
@@ -75,6 +76,24 @@ public class ChannelResource {
         return Response.status(Response.Status.CREATED)
                 .entity(created)
                 .build();
+    }
+
+    /**
+     * {@code PUT /api/v1/channels/{id}} : modifie le nom et le sujet.
+     *
+     * @param id    the channel identifier
+     * @param query validated update payload
+     * @return the updated channel (200 OK)
+     */
+    @PUT
+    @Path("/{id}")
+    @Operation(summary = "Update the name and topic of a channel")
+    @APIResponse(responseCode = "200", description = "Channel updated")
+    @APIResponse(responseCode = "400", description = "Invalid input")
+    @APIResponse(responseCode = "404", description = "Channel not found")
+    @APIResponse(responseCode = "409", description = "Channel name already used in this guild")
+    public ChannelDTO update(@PathParam("id") UUID id, @Valid ChannelUpdateQuery query) {
+        return service.update(id, query);
     }
 
     /**

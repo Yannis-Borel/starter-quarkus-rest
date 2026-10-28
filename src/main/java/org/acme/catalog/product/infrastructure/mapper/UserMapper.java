@@ -76,4 +76,15 @@ public final class UserMapper {
                 domain.displayName(),
                 domain.joinedAt());
     }
+
+    /**
+     * Recopie dans l'entité le champ modifiable. L'entité est « managée » :
+     * Hibernate fera l'{@code UPDATE} au commit, sans {@code persist}.
+     *
+     * @param entity l'entité à mettre à jour
+     * @param user   l'utilisateur modifié et validé
+     */
+    public static void updateEntity(UserEntity entity, User user) {
+        entity.setDisplayName(user.displayName());
+    }
 }

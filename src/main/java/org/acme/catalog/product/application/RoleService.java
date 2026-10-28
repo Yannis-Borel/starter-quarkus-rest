@@ -8,6 +8,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.acme.catalog.product.application.dto.RoleDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateRoleRequest;
+import org.acme.catalog.product.application.dto.usecases.RoleUpdateQuery;
+import org.acme.catalog.product.domain.Role;
 import org.acme.catalog.product.infrastructure.mapper.RoleMapper;
 import org.acme.catalog.product.infrastructure.persistence.GuildEntity;
 import org.acme.catalog.product.infrastructure.persistence.GuildRepository;
@@ -71,6 +73,38 @@ public class RoleService {
 
         RoleEntity entity = RoleMapper.toEntity(request, guild);
         roles.persist(entity);
+        return RoleMapper.toDto(entity);
+    }
+
+    /**
+     * Modifie le nom et la position d'un rôle.
+     *
+     * <p>
+     * Trajet du schéma du tableau : {@code RoleUpdateQuery} → {@code Role}
+     * (domaine, via les withers qui revérifient les règles) →
+     * {@code RoleEntity} → base ; puis {@code RoleEntity} → {@code RoleDTO}.
+     *
+     * @param id    l'identifiant du rôle
+     * @param query les nouvelles valeurs, validées par Bean Validation
+     * @return le rôle modifié
+     * @throws NoSuchElementException   si le rôle n'existe pas (404)
+     * @throws IllegalStateException    si le nom est déjà pris dans la guilde (409)
+     * @throws IllegalArgumentException si une règle du domaine est violée (400)
+     */
+    @Transactional
+    public RoleDTO update(UUID id, RoleUpdateQuery query) {
+        RoleEntity entity = roles.findByIdOptional(id)
+                .orElseThrow(() -> new NoSuchElementException("Role not found: " + id));
+
+        boolean nameChanged = !entity.getName().equals(query.name());
+        if (nameChanged && roles.existsByGuildAndName(entity.getGuild().getId(), query.name())) {
+            throw new IllegalStateException("Role name already used in this guild: " + query.name());
+        }
+
+        Role updated = RoleMapper.toDomain(entity)
+                .withName(query.name())
+                .withPosition(query.position());
+        RoleMapper.updateEntity(entity, updated);
         return RoleMapper.toDto(entity);
     }
 

@@ -2,6 +2,7 @@ package org.acme.catalog.product.application;
 
 import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateUserRequest;
+import org.acme.catalog.product.application.dto.usecases.UserUpdateQuery;
 import org.acme.catalog.product.infrastructure.mapper.UserMapper;
 import org.acme.catalog.product.infrastructure.persistence.UserEntity;
 import org.acme.catalog.product.infrastructure.persistence.UserRepository;
@@ -93,6 +94,26 @@ public class UserService {
         }
 
         repository.persist(entity);
+        return UserMapper.toDto(entity);
+    }
+
+    /**
+     * Modifie le nom affiché d'un utilisateur (même schéma que
+     * {@code RoleService.update}).
+     *
+     * @param username le pseudo de l'utilisateur à modifier
+     * @param query    les nouvelles valeurs, validées par Bean Validation
+     * @return l'utilisateur modifié
+     * @throws NoSuchElementException   si l'utilisateur n'existe pas (404)
+     * @throws IllegalArgumentException si une règle du domaine est violée (400)
+     */
+    @Transactional
+    public UserDTO update(String username, UserUpdateQuery query) {
+        UserEntity entity = repository.findByUsername(username)
+                .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+
+        User updated = UserMapper.toDomain(entity).withDisplayName(query.displayName());
+        UserMapper.updateEntity(entity, updated);
         return UserMapper.toDto(entity);
     }
 

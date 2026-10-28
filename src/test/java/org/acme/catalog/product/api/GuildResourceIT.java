@@ -60,4 +60,25 @@ class GuildResourceIT {
                 .then()
                 .statusCode(201);
     }
+
+    @Test
+    @DisplayName("PUT modifie le nom (200), nom vide refusé (400)")
+    void updateName() {
+        String guildId = createGuild("Ancien nom");
+
+        given()
+                .contentType(ContentType.JSON)
+                .body("{ \"name\": \"Nouveau nom\" }")
+                .when().put("/api/v1/guilds/" + guildId)
+                .then()
+                .statusCode(200)
+                .body("name", is("Nouveau nom"));
+
+        given()
+                .contentType(ContentType.JSON)
+                .body("{ \"name\": \"\" }")
+                .when().put("/api/v1/guilds/" + guildId)
+                .then()
+                .statusCode(400);
+    }
 }

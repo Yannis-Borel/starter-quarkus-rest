@@ -4,6 +4,8 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 
+import static org.hamcrest.Matchers.is;
+
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import org.junit.jupiter.api.DisplayName;
@@ -67,5 +69,27 @@ class UserResourceIT {
                 .when().post("/api/v1/users")
                 .then()
                 .statusCode(201);
+    }
+
+    @Test
+    @DisplayName("PUT modifie le nom affiché (200), utilisateur inconnu (404)")
+    void updateDisplayName() {
+        createUser("update-user", "Avant");
+
+        given()
+                .contentType(ContentType.JSON)
+                .body("{ \"displayName\": \"Apres\" }")
+                .when().put("/api/v1/users/update-user")
+                .then()
+                .statusCode(200)
+                .body("displayName", is("Apres"))
+                .body("username", is("update-user"));
+
+        given()
+                .contentType(ContentType.JSON)
+                .body("{ \"displayName\": \"Apres\" }")
+                .when().put("/api/v1/users/inconnu")
+                .then()
+                .statusCode(404);
     }
 }

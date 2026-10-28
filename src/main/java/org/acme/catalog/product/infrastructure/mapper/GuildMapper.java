@@ -36,4 +36,25 @@ public final class GuildMapper {
         var domain = Guild.of(request.name());
         return new GuildEntity(domain.id(), domain.name(), domain.createdAt());
     }
+
+    /**
+     * Entité → domaine : recrée le record à partir de la ligne lue en base.
+     *
+     * @param entity la ligne lue en base
+     * @return la guilde du domaine
+     */
+    public static Guild toDomain(GuildEntity entity) {
+        return new Guild(entity.getId(), entity.getName(), entity.getCreatedAt());
+    }
+
+    /**
+     * Recopie dans l'entité le champ modifiable. L'entité est « managée » :
+     * Hibernate fera l'{@code UPDATE} au commit, sans {@code persist}.
+     *
+     * @param entity l'entité à mettre à jour
+     * @param guild  la guilde modifiée et validée
+     */
+    public static void updateEntity(GuildEntity entity, Guild guild) {
+        entity.setName(guild.name());
+    }
 }

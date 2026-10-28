@@ -13,6 +13,7 @@ import java.util.UUID;
 import org.acme.catalog.product.application.GuildService;
 import org.acme.catalog.product.application.dto.GuildDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
+import org.acme.catalog.product.application.dto.usecases.GuildUpdateQuery;
 import org.acme.catalog.product.domain.ChannelType;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
@@ -87,6 +88,23 @@ public class GuildResource {
         return Response.status(Response.Status.CREATED)
                 .entity(created)
                 .build();
+    }
+
+    /**
+     * {@code PUT /api/v1/guilds/{id}} : modifie le nom.
+     *
+     * @param id    the guild identifier
+     * @param query validated update payload
+     * @return the updated guild (200 OK)
+     */
+    @PUT
+    @Path("/{id}")
+    @Operation(summary = "Update the name of a guild")
+    @APIResponse(responseCode = "200", description = "Guild updated")
+    @APIResponse(responseCode = "400", description = "Invalid input")
+    @APIResponse(responseCode = "404", description = "Guild not found")
+    public GuildDTO update(@PathParam("id") UUID id, @Valid GuildUpdateQuery query) {
+        return service.update(id, query);
     }
 
     /**

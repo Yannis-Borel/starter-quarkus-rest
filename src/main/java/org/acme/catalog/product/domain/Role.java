@@ -43,4 +43,26 @@ public record Role(UUID id, UUID guildId, String name, int position) {
     public static Role of(UUID guildId, String name, int position) {
         return new Role(UUID.randomUUID(), guildId, name, position);
     }
+
+    /**
+     * Wither : renvoie un <b>nouveau</b> rôle avec un autre nom (le record est
+     * immuable, on ne modifie jamais l'objet existant). Le constructeur
+     * compact revérifie les règles.
+     *
+     * @param newName le nouveau nom
+     * @return une copie modifiée
+     */
+    public Role withName(String newName) {
+        return new Role(id, guildId, newName, position);
+    }
+
+    /**
+     * Wither : renvoie un nouveau rôle avec une autre position.
+     *
+     * @param newPosition la nouvelle position
+     * @return une copie modifiée
+     */
+    public Role withPosition(int newPosition) {
+        return new Role(id, guildId, name, newPosition);
+    }
 }

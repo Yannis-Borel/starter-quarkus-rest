@@ -3,6 +3,7 @@ package org.acme.catalog.product.api;
 import org.acme.catalog.product.application.UserService;
 import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateUserRequest;
+import org.acme.catalog.product.application.dto.usecases.UserUpdateQuery;
 
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
@@ -99,6 +100,23 @@ public class UserResource {
         return Response.status(Response.Status.CREATED)
                 .entity(created)
                 .build();
+    }
+
+    /**
+     * {@code PUT /api/v1/users/{username}} : modifie le nom affiché.
+     *
+     * @param username le pseudo
+     * @param query    le JSON reçu, validé par {@code @Valid}
+     * @return 200 OK avec l'utilisateur modifié
+     */
+    @PUT
+    @Path("/{username}")
+    @Operation(summary = "Update the display name of a user")
+    @APIResponse(responseCode = "200", description = "User updated")
+    @APIResponse(responseCode = "400", description = "Invalid input")
+    @APIResponse(responseCode = "404", description = "User not found")
+    public UserDTO update(@PathParam("username") String username, @Valid UserUpdateQuery query) {
+        return service.update(username, query);
     }
 
     /**

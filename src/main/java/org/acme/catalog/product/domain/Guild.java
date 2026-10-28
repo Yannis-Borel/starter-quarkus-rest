@@ -39,4 +39,15 @@ public record Guild(UUID id, String name, Instant createdAt) {
     public static Guild of(String name) {
         return new Guild(UUID.randomUUID(), name, Instant.now());
     }
+
+    /**
+     * Wither : renvoie une <b>nouvelle</b> guilde avec un autre nom (le record
+     * est immuable). Le constructeur compact revérifie les règles.
+     *
+     * @param newName le nouveau nom
+     * @return une copie modifiée
+     */
+    public Guild withName(String newName) {
+        return new Guild(id, newName, createdAt);
+    }
 }

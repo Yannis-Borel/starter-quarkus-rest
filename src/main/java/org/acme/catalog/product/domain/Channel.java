@@ -45,4 +45,25 @@ public record Channel(UUID id, UUID guildId, String name, ChannelType type, Stri
     public static Channel of(UUID guildId, String name, ChannelType type, String topic) {
         return new Channel(UUID.randomUUID(), guildId, name, type, topic);
     }
+
+    /**
+     * Wither : renvoie un <b>nouveau</b> salon avec un autre nom (le record
+     * est immuable). Le constructeur compact revérifie les règles.
+     *
+     * @param newName le nouveau nom
+     * @return une copie modifiée
+     */
+    public Channel withName(String newName) {
+        return new Channel(id, guildId, newName, type, topic);
+    }
+
+    /**
+     * Wither : renvoie un nouveau salon avec un autre sujet.
+     *
+     * @param newTopic le nouveau sujet, peut être {@code null}
+     * @return une copie modifiée
+     */
+    public Channel withTopic(String newTopic) {
+        return new Channel(id, guildId, name, type, newTopic);
+    }
 }

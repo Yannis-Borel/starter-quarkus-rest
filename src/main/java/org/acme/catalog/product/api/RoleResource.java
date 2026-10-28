@@ -12,6 +12,7 @@ import java.util.UUID;
 import org.acme.catalog.product.application.RoleService;
 import org.acme.catalog.product.application.dto.RoleDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateRoleRequest;
+import org.acme.catalog.product.application.dto.usecases.RoleUpdateQuery;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.eclipse.microprofile.openapi.annotations.parameters.Parameter;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
@@ -75,6 +76,24 @@ public class RoleResource {
         return Response.status(Response.Status.CREATED)
                 .entity(created)
                 .build();
+    }
+
+    /**
+     * {@code PUT /api/v1/roles/{id}} : modifie le nom et la position.
+     *
+     * @param id    the role identifier
+     * @param query validated update payload
+     * @return the updated role (200 OK)
+     */
+    @PUT
+    @Path("/{id}")
+    @Operation(summary = "Update the name and position of a role")
+    @APIResponse(responseCode = "200", description = "Role updated")
+    @APIResponse(responseCode = "400", description = "Invalid input")
+    @APIResponse(responseCode = "404", description = "Role not found")
+    @APIResponse(responseCode = "409", description = "Role name already used in this guild")
+    public RoleDTO update(@PathParam("id") UUID id, @Valid RoleUpdateQuery query) {
+        return service.update(id, query);
     }
 
     /**

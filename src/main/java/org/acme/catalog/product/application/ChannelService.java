@@ -7,7 +7,9 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 import org.acme.catalog.product.application.dto.ChannelDTO;
+import org.acme.catalog.product.application.dto.usecases.ChannelUpdateQuery;
 import org.acme.catalog.product.application.dto.usecases.CreateChannelRequest;
+import org.acme.catalog.product.domain.Channel;
 import org.acme.catalog.product.infrastructure.mapper.ChannelMapper;
 import org.acme.catalog.product.infrastructure.persistence.ChannelEntity;
 import org.acme.catalog.product.infrastructure.persistence.ChannelRepository;
@@ -71,6 +73,34 @@ public class ChannelService {
 
         ChannelEntity entity = ChannelMapper.toEntity(request, guild);
         channels.persist(entity);
+        return ChannelMapper.toDto(entity);
+    }
+
+    /**
+     * Modifie le nom et le sujet d'un salon (même schéma que
+     * {@code RoleService.update}).
+     *
+     * @param id    l'identifiant du salon
+     * @param query les nouvelles valeurs, validées par Bean Validation
+     * @return le salon modifié
+     * @throws NoSuchElementException   si le salon n'existe pas (404)
+     * @throws IllegalStateException    si le nom est déjà pris dans la guilde (409)
+     * @throws IllegalArgumentException si une règle du domaine est violée (400)
+     */
+    @Transactional
+    public ChannelDTO update(UUID id, ChannelUpdateQuery query) {
+        ChannelEntity entity = channels.findByIdOptional(id)
+                .orElseThrow(() -> new NoSuchElementException("Channel not found: " + id));
+
+        boolean nameChanged = !entity.getName().equals(query.name());
+        if (nameChanged && channels.existsByGuildAndName(entity.getGuild().getId(), query.name())) {
+            throw new IllegalStateException("Channel name already used in this guild: " + query.name());
+        }
+
+        Channel updated = ChannelMapper.toDomain(entity)
+                .withName(query.name())
+                .withTopic(query.topic());
+        ChannelMapper.updateEntity(entity, updated);
         return ChannelMapper.toDto(entity);
     }
 

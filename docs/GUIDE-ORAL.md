@@ -171,6 +171,29 @@ Classes utilitaires : `final`, constructeur privé, méthodes `static`. Aucune a
 3. **api** — `orElseThrow(() -> new NoSuchElementException(...))` : si vide, `NotFoundMapper`
    renvoie 404 ; sinon 200 + JSON.
 
+### 3.3 `PUT /api/v1/roles/{id}` (modification) — le schéma « frontière » du tableau
+
+```
+ extérieur  │  frontière (BORDER)  │           intérieur
+────────────┼──────────────────────┼──────────────────────────────────────
+RoleUpdateQuery ──────────────────────▶ Role (Modèle, domaine) ◀──▶ RoleEntity ──▶ DB
+RoleDTO ◀──────────────────────────────────────────────────────── RoleEntity
+```
+
+1. **api** — `RoleResource.update(@PathParam("id") UUID id, @Valid RoleUpdateQuery query)` :
+   Bean Validation vérifie `@NotBlank` / `@PositiveOrZero` → 400 si invalide.
+2. **application** — `RoleService.update` (`@Transactional`) charge l'entité :
+   `roles.findByIdOptional(id).orElseThrow(...)` → 404 si absente. L'entité est maintenant
+   **managée** : elle est dans le contexte de persistance de la transaction.
+3. **application** — si le nom change et qu'un autre rôle de la guilde l'a déjà → 409.
+4. **infrastructure → domain** — `RoleMapper.toDomain(entity)` recrée le record `Role`, puis
+   `.withName(...)` et `.withPosition(...)` produisent un **nouveau** `Role` (le record est
+   immuable) ; son constructeur compact revérifie les règles (`IllegalArgumentException` → 400).
+5. **infrastructure** — `RoleMapper.updateEntity(entity, updated)` recopie les champs avec les
+   setters. **Pas de `persist`** : au commit, Hibernate compare l'entité managée à son état
+   initial (*dirty checking*) et envoie lui-même l'`UPDATE`.
+6. Retour : `RoleMapper.toDto(entity)` → **api** renvoie `200 OK` + JSON.
+
 ---
 
 ## 4. Fonctionnalités ajoutées
@@ -530,3 +553,65 @@ veut enchaîner un traitement sur le résultat d'un stream, regarder du côté d
    est utilisée, et pourquoi une lambda plutôt que l'exception directement ?* — Un `Supplier` :
    l'exception n'est créée que si l'`Optional` est vide. On passe « la façon de la fabriquer »,
    pas l'exception elle-même.
+
+### 4.6 Modification (PUT) sur les 4 entités (fonctionnalité 6)
+
+**Endpoints ajoutés :**
+
+| Endpoint | Objet reçu | Champs modifiables | Codes |
+| --- | --- | --- | --- |
+| `PUT /api/v1/roles/{id}` | `RoleUpdateQuery` | `name`, `position` | 200, 400, 404, 409 |
+| `PUT /api/v1/users/{username}` | `UserUpdateQuery` | `displayName` | 200, 400, 404 |
+| `PUT /api/v1/guilds/{id}` | `GuildUpdateQuery` | `name` | 200, 400, 404 |
+| `PUT /api/v1/channels/{id}` | `ChannelUpdateQuery` | `name`, `topic` | 200, 400, 404, 409 |
+
+**Le même schéma pour chacune, en 5 morceaux** (exemple `Role`, trajet détaillé en 3.3) :
+
+| Morceau | Fichier | Rôle |
+| --- | --- | --- |
+| Objet reçu | `dto/usecases/RoleUpdateQuery` | Record avec les seuls champs modifiables + Bean Validation |
+| Withers | `domain/Role` : `withName`, `withPosition` | Fabriquent un nouveau record modifié |
+| Conversions | `RoleMapper.toDomain(entity)`, `RoleMapper.updateEntity(entity, role)` | Entité → domaine, puis domaine → entité (setters) |
+| Cas d'usage | `RoleService.update(id, query)` | 404, 409, withers, recopie, DTO |
+| Endpoint | `RoleResource.update` | `@PUT @Path("/{id}")` + `@Valid` |
+
+Tests : `RoleResourceIT` (les 4 codes), `UserResourceIT.updateDisplayName` (200, 404),
+`GuildResourceIT.updateName` (200, 400), `ChannelResourceIT` (200, 409).
+
+**Analogie.** On ne **rature** pas une fiche du domaine (immuable) : on en **recopie une neuve**
+avec la correction (le *wither*), le contrôleur (constructeur compact) la vérifie, puis on recopie
+la nouvelle version dans le classeur (l'entité). Le classeur est déjà sur la table (entité
+managée) : pas besoin de le ranger à nouveau (`persist`), Hibernate voit qu'il a changé.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Un `XxxUpdateQuery` distinct du `CreateXxxRequest` | Schéma du tableau ; les champs ne sont pas les mêmes : pas de `guildId` (un rôle ou un salon ne change jamais de guilde), pas de `type` pour un salon. | Pas de réutilisation de `CreateXxxRequest` : on pourrait sinon envoyer un `guildId` qui serait ignoré, ce qui est trompeur. |
+| Nom « UpdateQuery » et place dans `dto/usecases` | Nom écrit au tableau ; à côté des objets de création, car ce sont aussi des objets **reçus** pour un cas d'usage. | — |
+| `PUT` (remplacement des champs modifiables) | Tous les champs modifiables sont envoyés à chaque fois : simple à valider (`@NotBlank` partout). Pour un salon, `topic` absent ou `null` efface le sujet. | Pas de `PATCH` (modification partielle) : il faudrait distinguer « champ absent » et « champ à `null` ». |
+| Withers dans les records | Le domaine est immuable ; le wither crée une copie et **revérifie les invariants** par le constructeur compact (même pattern que `Product.withName` du starter). | Pas de setters dans les records (impossible : champs `final`). |
+| `toDomain` + `updateEntity` dans les mappers | Les mappers sont déjà l'endroit où l'on traduit entre les modèles. | — |
+| Pas de `persist` après la modification | L'entité a été chargée dans la transaction : elle est **managée**. Au commit, Hibernate détecte les changements (*dirty checking*) et fait l'`UPDATE`. | — |
+| 409 seulement pour `Role` et `Channel` | Seuls leurs noms sont uniques (par guilde, `@UniqueConstraint`). On ne lève le 409 que si le nom **change** : renvoyer le même nom n'est pas un doublon. | `User` : le pseudo n'est pas modifiable (ta décision du 28/10), donc pas de doublon possible. `Guild` : aucune unicité sur le nom. |
+| `User` : `displayName` seul | Ta décision : le pseudo sert d'identifiant dans l'URL ; le modifier changerait l'adresse de la ressource. | — |
+| `Channel` : `type` non modifiable | Un salon textuel et un salon vocal n'ont pas le même usage ; changer de type, c'est créer un autre salon. | — |
+| Jamais l'id, la guilde, `joinedAt`, `createdAt` | Consigne : ce sont des données d'identité ou d'historique. | — |
+| Réponse `200 OK` avec le DTO | Le client voit l'état final. | Pas de `204 No Content` : il devrait refaire un `GET` pour voir le résultat. |
+
+**Notion de cours :** immuabilité et pattern *wither* ; DTO et frontière de l'application ; JPA :
+contexte de persistance, entité managée, *dirty checking* (cours JPA de M. Bruno) ; REST : verbe
+`PUT`, codes 200 / 400 / 404 / 409 (cours REST JAX-RS).
+
+**Questions d'oral probables :**
+
+1. *Pourquoi un `RoleUpdateQuery` et pas le `CreateRoleRequest` ?* — Parce que les champs
+   modifiables ne sont pas ceux de la création : on ne change ni l'id ni la guilde d'un rôle.
+   L'objet reçu décrit exactement ce que le client a le droit de demander.
+2. *Ton record est immuable : comment le modifies-tu ?* — Je ne le modifie pas : `withName`
+   renvoie un **nouveau** `Role` avec le nouveau nom et les autres valeurs recopiées. Le
+   constructeur compact s'exécute, donc les règles sont revérifiées.
+3. *Tu n'appelles pas `persist` dans `update` : comment la base est-elle mise à jour ?* — L'entité
+   a été chargée par `findByIdOptional` dans une méthode `@Transactional` : elle est managée par
+   le contexte de persistance. Au commit, Hibernate compare son état à celui du chargement et
+   envoie l'`UPDATE` (*dirty checking*).

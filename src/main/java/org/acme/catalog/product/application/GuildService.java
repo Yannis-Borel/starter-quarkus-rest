@@ -10,6 +10,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.acme.catalog.product.application.dto.GuildDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
+import org.acme.catalog.product.application.dto.usecases.GuildUpdateQuery;
+import org.acme.catalog.product.domain.Guild;
 import org.acme.catalog.product.domain.ChannelType;
 import org.acme.catalog.product.infrastructure.mapper.GuildMapper;
 import org.acme.catalog.product.infrastructure.persistence.ChannelEntity;
@@ -82,6 +84,25 @@ public class GuildService {
     public GuildDTO create(CreateGuildRequest request) {
         GuildEntity entity = GuildMapper.toEntity(request);
         repository.persist(entity);
+        return GuildMapper.toDto(entity);
+    }
+
+    /**
+     * Modifie le nom d'une guilde (même schéma que {@code RoleService.update}).
+     *
+     * @param id    l'identifiant de la guilde
+     * @param query les nouvelles valeurs, validées par Bean Validation
+     * @return la guilde modifiée
+     * @throws NoSuchElementException   si la guilde n'existe pas (404)
+     * @throws IllegalArgumentException si une règle du domaine est violée (400)
+     */
+    @Transactional
+    public GuildDTO update(UUID id, GuildUpdateQuery query) {
+        GuildEntity entity = repository.findByIdOptional(id)
+                .orElseThrow(() -> new NoSuchElementException("Guild not found: " + id));
+
+        Guild updated = GuildMapper.toDomain(entity).withName(query.name());
+        GuildMapper.updateEntity(entity, updated);
         return GuildMapper.toDto(entity);
     }
 

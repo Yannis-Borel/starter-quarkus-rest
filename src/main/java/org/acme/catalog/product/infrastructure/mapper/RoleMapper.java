@@ -42,4 +42,27 @@ public final class RoleMapper {
         var domain = Role.of(guild.getId(), request.name(), request.position());
         return new RoleEntity(domain.id(), guild, domain.name(), domain.position());
     }
+
+    /**
+     * Entité → domaine : recrée le record à partir de la ligne lue en base.
+     *
+     * @param entity la ligne lue en base
+     * @return le rôle du domaine
+     */
+    public static Role toDomain(RoleEntity entity) {
+        return new Role(entity.getId(), entity.getGuild().getId(), entity.getName(), entity.getPosition());
+    }
+
+    /**
+     * Recopie dans l'entité les champs modifiables du rôle. L'entité est
+     * « managée » (chargée dans la transaction) : Hibernate détectera le
+     * changement et fera l'{@code UPDATE} au commit, sans {@code persist}.
+     *
+     * @param entity l'entité à mettre à jour
+     * @param role   le rôle modifié et validé
+     */
+    public static void updateEntity(RoleEntity entity, Role role) {
+        entity.setName(role.name());
+        entity.setPosition(role.position());
+    }
 }
