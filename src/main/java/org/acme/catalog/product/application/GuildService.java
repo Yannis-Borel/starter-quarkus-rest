@@ -9,11 +9,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.acme.catalog.product.application.dto.GuildDTO;
+import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
 import org.acme.catalog.product.application.dto.usecases.GuildUpdateQuery;
 import org.acme.catalog.product.domain.Guild;
 import org.acme.catalog.product.domain.ChannelType;
 import org.acme.catalog.product.infrastructure.mapper.GuildMapper;
+import org.acme.catalog.product.infrastructure.mapper.UserMapper;
 import org.acme.catalog.product.infrastructure.persistence.ChannelEntity;
 import org.acme.catalog.product.infrastructure.persistence.GuildEntity;
 import org.acme.catalog.product.infrastructure.persistence.GuildRepository;
@@ -72,6 +74,21 @@ public class GuildService {
                 .orElseThrow(() -> new NoSuchElementException("Guild not found: " + id));
         return guild.getChannels().stream()
                 .collect(Collectors.groupingBy(ChannelEntity::getType, Collectors.counting()));
+    }
+
+    /**
+     * Liste les membres d'une guilde.
+     *
+     * @param id l'identifiant de la guilde
+     * @return les membres, sous forme de DTO
+     * @throws NoSuchElementException si la guilde n'existe pas
+     */
+    public List<UserDTO> getMembers(UUID id) {
+        GuildEntity guild = repository.findByIdOptional(id)
+                .orElseThrow(() -> new NoSuchElementException("Guild not found: " + id));
+        return guild.getMembers().stream()
+                .map(UserMapper::toDto)
+                .toList();
     }
 
     /**

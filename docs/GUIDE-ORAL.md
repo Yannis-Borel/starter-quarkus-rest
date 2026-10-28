@@ -867,3 +867,62 @@ Docker doit donc tourner pour `./mvnw verify`.
 3. *Pourquoi Testcontainers plutôt que H2 ?* — On teste contre le **même** SGBD qu'en production
    (PostgreSQL), dans un conteneur jetable créé pour les tests. H2 peut accepter ou refuser des
    choses différemment.
+
+### 4.11 Appartenance User ↔ Guild : `@ManyToMany` (fonctionnalité 8, partie 1)
+
+**Ce qui a été fait :**
+
+```java
+// GuildEntity : côté PROPRIÉTAIRE, décrit la table de jointure
+@ManyToMany
+@JoinTable(name = "guild_members",
+        joinColumns = @JoinColumn(name = "guild_id"),
+        inverseJoinColumns = @JoinColumn(name = "user_id"))
+private Set<UserEntity> members = new HashSet<>();
+
+// UserEntity : côté INVERSE
+@ManyToMany(mappedBy = "members")
+private Set<GuildEntity> guilds = new HashSet<>();
+```
+
+Plus `GET /api/v1/guilds/{id}/members` (`GuildService.getMembers`) et, dans
+`UserService.delete`, une boucle qui retire l'utilisateur de ses guildes avant de le supprimer.
+Test : `GuildResourceIT.membersOfNewGuildIsEmpty`. On **devient** membre par une invitation (4.12).
+
+**En base**, une `@ManyToMany` devient une **table de jointure** à deux colonnes :
+
+```
+guilds (id, name, …)      guild_members (guild_id, user_id)      users (id, username, …)
+```
+
+**Analogie.** La table de jointure, c'est le **registre des inscriptions** d'un club : une ligne
+« tel membre, tel club ». Le club (la guilde) tient le registre (côté propriétaire) ; le membre
+garde seulement une copie de ses clubs (côté inverse), qui ne fait pas foi.
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| `@ManyToMany` simple | Consigne ; prévue dans l'UML. | Pas d'entité `Membership` (date d'arrivée, surnom) : une `@ManyToMany` ne peut **pas** porter d'attribut sur le lien. Pour en avoir, il faudrait une entité `Membership` et deux `@ManyToOne` (Membership → User, Membership → Guild). |
+| Guilde = côté **propriétaire** | L'action métier « rejoindre une guilde » modifie la guilde : `guild.getMembers().add(user)`. Seul le côté propriétaire est lu par Hibernate pour écrire la table de jointure. Supprimer une guilde supprime ses lignes de jointure automatiquement. | — |
+| Utilisateur = côté **inverse** (`mappedBy`) | Nécessaire pour retrouver les guildes d'un utilisateur au moment de le supprimer. | — |
+| Boucle de retrait dans `UserService.delete` | Hibernate n'efface les lignes de jointure que depuis le côté **propriétaire**. Sans la boucle, supprimer un membre échouerait à cause de la clé étrangère `user_id` de `guild_members`. | Pas de `cascade` vers les utilisateurs : supprimer une guilde ne doit pas supprimer ses membres. |
+| `Set` et non `List` | Un utilisateur n'est membre qu'une fois ; `add` d'un élément déjà présent ne fait rien. | Pas de `equals`/`hashCode` redéfinis sur les entités : dans un même contexte de persistance, Hibernate garantit **un seul objet Java par ligne**, donc l'égalité par référence (celle d'`Object`) suffit ici. |
+| Chargement **LAZY** (par défaut pour `@ManyToMany`) | Lire une guilde ne charge pas tous ses membres ; ils sont lus au premier accès à `getMembers()`. | — |
+| `GET /{id}/members` | Seul moyen de voir et tester l'appartenance. | Pas de `GET /users/{username}/guilds` : non demandé. |
+| Pas de `@ManyToMany` User ↔ Role | Hors du §0 (seul User ↔ Guild est demandé). | — |
+
+**Notion de cours :** JPA, relations `@ManyToMany`, côté propriétaire / côté inverse
+(`mappedBy`), table de jointure, LAZY / EAGER (cours JPA de M. Bruno).
+
+**Questions d'oral probables :**
+
+1. *Qu'est-ce que le côté propriétaire d'une relation ?* — Le côté dont Hibernate lit l'état pour
+   écrire en base (ici la table `guild_members`). L'autre côté porte `mappedBy` : le modifier seul
+   n'a aucun effet en base.
+2. *`@ManyToMany` : EAGER ou LAZY par défaut ?* — LAZY (comme `@OneToMany`). `@ManyToOne` et
+   `@OneToOne` sont EAGER par défaut.
+3. *Pourquoi une `@ManyToMany` ne peut-elle pas porter la date d'arrivée d'un membre ?* — Parce que
+   la table de jointure ne contient que les deux clés étrangères. Pour ajouter une donnée sur le
+   lien, on crée une entité `Membership` : la `@ManyToMany` devient deux `@ManyToOne`
+   (`Membership` → `User` et `Membership` → `Guild`), et chaque côté a une `@OneToMany` inverse.

@@ -81,4 +81,16 @@ class GuildResourceIT {
                 .then()
                 .statusCode(400);
     }
+
+    @Test
+    @DisplayName("GET /{id}/members : une nouvelle guilde n'a aucun membre ; guilde inconnue → 404")
+    void membersOfNewGuildIsEmpty() {
+        String guildId = createGuild("Members guild");
+
+        given().when().get("/api/v1/guilds/" + guildId + "/members")
+                .then().statusCode(200).body("size()", is(0));
+
+        given().when().get("/api/v1/guilds/00000000-0000-0000-0000-000000000000/members")
+                .then().statusCode(404);
+    }
 }

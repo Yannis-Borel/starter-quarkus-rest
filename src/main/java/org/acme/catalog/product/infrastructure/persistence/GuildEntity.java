@@ -3,7 +3,9 @@ package org.acme.catalog.product.infrastructure.persistence;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,6 +36,20 @@ public class GuildEntity {
 
     @OneToMany(mappedBy = "guild", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<RoleEntity> roles = new ArrayList<>();
+
+    /**
+     * Membres de la guilde : relation plusieurs-à-plusieurs avec les
+     * utilisateurs. La guilde est le côté <b>propriétaire</b> : c'est elle qui
+     * décrit la table de jointure {@code guild_members} (une ligne par couple
+     * guilde/utilisateur). Supprimer la guilde supprime donc ses lignes de
+     * jointure, mais pas les utilisateurs (pas de {@code cascade}). Un
+     * {@code Set} : un utilisateur n'est membre qu'une fois.
+     */
+    @ManyToMany
+    @JoinTable(name = "guild_members",
+            joinColumns = @JoinColumn(name = "guild_id"),
+            inverseJoinColumns = @JoinColumn(name = "user_id"))
+    private Set<UserEntity> members = new HashSet<>();
 
     /** Default constructor required by the JPA specification. */
     public GuildEntity() {
@@ -82,5 +98,9 @@ public class GuildEntity {
 
     public List<RoleEntity> getRoles() {
         return roles;
+    }
+
+    public Set<UserEntity> getMembers() {
+        return members;
     }
 }

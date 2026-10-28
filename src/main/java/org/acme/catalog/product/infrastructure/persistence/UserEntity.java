@@ -3,6 +3,8 @@ package org.acme.catalog.product.infrastructure.persistence;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -40,6 +42,14 @@ public class UserEntity {
 
     @Column(nullable = false)
     private Instant joinedAt;
+
+    /**
+     * Guildes dont l'utilisateur est membre : côté <b>inverse</b> de la
+     * relation ({@code mappedBy = "members"}, le nom du champ dans
+     * {@link GuildEntity}). Modifier seulement ce côté ne change rien en base.
+     */
+    @ManyToMany(mappedBy = "members")
+    private Set<GuildEntity> guilds = new HashSet<>();
 
     /** Constructeur sans argument exigé par la spécification JPA. */
     public UserEntity() {
@@ -90,5 +100,9 @@ public class UserEntity {
 
     public void setJoinedAt(Instant joinedAt) {
         this.joinedAt = joinedAt;
+    }
+
+    public Set<GuildEntity> getGuilds() {
+        return guilds;
     }
 }

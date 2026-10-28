@@ -12,6 +12,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.acme.catalog.product.application.GuildService;
 import org.acme.catalog.product.application.dto.GuildDTO;
+import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateGuildRequest;
 import org.acme.catalog.product.application.dto.usecases.GuildUpdateQuery;
 import org.acme.catalog.product.domain.ChannelType;
@@ -73,6 +74,21 @@ public class GuildResource {
     @APIResponse(responseCode = "404", description = "Guild not found")
     public Map<ChannelType, Long> getChannelStats(@PathParam("id") UUID id) {
         return service.getChannelStats(id);
+    }
+
+    /**
+     * {@code GET /api/v1/guilds/{id}/members} : les membres de la guilde.
+     *
+     * @param id the guild identifier
+     * @return the members
+     */
+    @GET
+    @Path("/{id}/members")
+    @Operation(summary = "Get the members of a guild")
+    @APIResponse(responseCode = "200", description = "Members of the guild")
+    @APIResponse(responseCode = "404", description = "Guild not found")
+    public List<UserDTO> getMembers(@PathParam("id") UUID id) {
+        return service.getMembers(id);
     }
 
     /**

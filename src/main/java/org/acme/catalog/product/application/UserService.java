@@ -4,6 +4,7 @@ import org.acme.catalog.product.application.dto.UserDTO;
 import org.acme.catalog.product.application.dto.usecases.CreateUserRequest;
 import org.acme.catalog.product.application.dto.usecases.UserUpdateQuery;
 import org.acme.catalog.product.infrastructure.mapper.UserMapper;
+import org.acme.catalog.product.infrastructure.persistence.GuildEntity;
 import org.acme.catalog.product.infrastructure.persistence.UserEntity;
 import org.acme.catalog.product.infrastructure.persistence.UserRepository;
 
@@ -118,7 +119,7 @@ public class UserService {
     }
 
     /**
-     * Supprime un utilisateur.
+     * Supprime un utilisateur, après l'avoir retiré de ses guildes.
      *
      * @param username le pseudo
      * @throws NoSuchElementException si l'utilisateur n'existe pas (HTTP 404)
@@ -127,6 +128,12 @@ public class UserService {
     public void delete(String username) {
         UserEntity p = repository.findByUsername(username)
                 .orElseThrow(() -> new NoSuchElementException("User not found: " + username));
+        // UserEntity est le côté inverse de la relation avec les guildes : on retire
+        // d'abord l'utilisateur de chaque guilde (côté propriétaire), sinon ses lignes
+        // dans guild_members bloqueraient la suppression (clé étrangère).
+        for (GuildEntity guild : p.getGuilds()) {
+            guild.getMembers().remove(p);
+        }
         repository.delete(p);
     }
 
