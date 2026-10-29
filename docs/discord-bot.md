@@ -1,65 +1,100 @@
-# Bot Discord « ping-pong »
+# Bot Discord (projet `discord-bot/`)
 
-Le bot répond `pong!` quand quelqu'un écrit `!ping` dans un salon où il est présent.
-Code : `src/main/java/org/acme/catalog/product/infrastructure/discord/`.
+Le bot est un **second projet Quarkus**, indépendant de l'API, dans le dossier `discord-bot/`
+(son propre `pom.xml` et son propre `./mvnw`). Il parle à l'API par **HTTP**, comme n'importe
+quel client.
 
-Sans jeton, l'application démarre normalement et le log affiche :
+| Commande | Réponse | Appel à l'API ? |
+| --- | --- | --- |
+| `!ping` | `pong!` | non |
+| `!users` | les pseudos, par exemple `alice, bob` (ou `No users yet`, ou `Cannot reach the API`) | oui : `GET /api/v1/users` |
+
+```
+Discord ──(passerelle, Discord4J)──▶ bot (port 8081) ──HTTP GET /api/v1/users──▶ API (port 8080) ──▶ PostgreSQL
+```
+
+Sans jeton, l'application du bot démarre normalement et le log affiche :
 `DISCORD_TOKEN is not set: the Discord bot is disabled`. C'est le cas des tests et de la CI.
 
 ## 1. Ce que tu dois faire sur le portail développeur de Discord
 
-Ces étapes se font à la main, avec ton compte Discord, sur
-<https://discord.com/developers/applications>. Les noms de boutons peuvent changer légèrement
-d'une version du portail à l'autre.
+Sur <https://discord.com/developers/applications>. Les noms de boutons peuvent changer légèrement.
 
-1. **Créer l'application** : bouton « New Application », donne-lui un nom (par exemple
-   `I311-bot`), accepte les conditions.
-2. **Récupérer le jeton du bot** : menu de gauche « Bot », bouton « Reset Token », puis copie le
-   jeton affiché. Il n'est montré qu'une fois. **Ne le colle jamais dans le code ni dans git.**
-   Attention : c'est le jeton de la section « Bot », pas le « Client Secret » ni la « Public Key »
-   de la page « General Information » (Discord4J refuserait le démarrage avec « Invalid token »).
+1. **Créer l'application** : bouton « New Application », un nom (par exemple `I311-bot`).
+2. **Récupérer le jeton** : menu « Bot », bouton « Reset Token », copie le jeton. Il n'est montré
+   qu'une fois. **Ne le colle jamais dans le code, dans git, dans une discussion ou une capture.**
+   C'est le jeton de la section « Bot », pas le « Client Secret » ni la « Public Key ».
 3. **Activer l'intent « Message Content »** : toujours dans « Bot », section
-   « Privileged Gateway Intents », active **Message Content Intent** et enregistre.
-   Pourquoi : sans lui, Discord envoie au bot des messages dont le contenu est vide, et le bot ne
-   voit jamais `!ping`. Le code le demande aussi de son côté (`Intent.MESSAGE_CONTENT`).
-4. **Inviter le bot sur un serveur** : menu « OAuth2 », puis « URL Generator ».
-   Coche le scope **`bot`**, puis les permissions **View Channels** et **Send Messages**.
-   Copie l'URL générée en bas, ouvre-la dans le navigateur et choisis ton serveur de test
-   (il faut avoir le droit « Gérer le serveur » sur ce serveur ; le plus simple est d'en créer un).
+   « Privileged Gateway Intents », active **Message Content Intent** puis **Save Changes**.
+   Sans lui, Discord **refuse la connexion** : le bot reste **hors ligne**, même s'il est
+   administrateur du serveur (les permissions du serveur et les intents du portail sont deux
+   réglages différents).
+4. **Inviter le bot** : menu « OAuth2 » → « URL Generator », scope **`bot`**, permissions
+   **View Channels** et **Send Messages** (le minimum nécessaire : moindre privilège). Ouvre l'URL
+   générée et choisis ton serveur de test.
 
-## 2. Lancer l'application avec le jeton
+## 2. Lancer les deux projets
 
-Le jeton passe par la variable d'environnement `DISCORD_TOKEN`. Quarkus (MicroProfile Config) la
-lit comme la propriété `discord.token`.
+Il faut **deux terminaux**, un par projet.
 
-PostgreSQL d'abord :
+Terminal 1 — PostgreSQL, puis l'API (port 8080), depuis la racine du dépôt :
 
 ```bash
 docker start product-catalog-postgres
 ```
 
-Puis l'application, en remplaçant `ton-jeton` par le jeton copié à l'étape 2 :
-
 ```bash
-DISCORD_TOKEN=ton-jeton DB_PORT=15432 ./mvnw quarkus:dev
+DB_PORT=15432 ./mvnw quarkus:dev
 ```
 
-Dans le log, tu dois voir `Discord bot started`. Écris `!ping` dans un salon du serveur : le bot
-répond `pong!`.
+Terminal 2 — le bot (port 8081), en remplaçant `ton-jeton` :
 
-Messages possibles dans le log :
+```bash
+cd discord-bot
+```
 
-| Message | Signification |
+```bash
+DISCORD_TOKEN=ton-jeton ./mvnw quarkus:dev
+```
+
+Par défaut, le bot appelle l'API sur `http://localhost:8080`. Pour une autre adresse, ajoute
+`API_URL=http://autre-adresse:port` devant la commande.
+
+Vérifications :
+
+- dans le log du bot : `Discord bot started`, puis le bot passe **en ligne** dans Discord ;
+- l'application du bot répond sur <http://localhost:8081/q/health> ;
+- dans un salon : `!ping` → `pong!`, `!users` → la liste des pseudos.
+
+Tests du bot :
+
+```bash
+cd discord-bot
+```
+
+```bash
+./mvnw clean verify
+```
+
+## 3. Dépannage
+
+| Symptôme / message | Cause probable |
 | --- | --- |
-| `DISCORD_TOKEN is not set: the Discord bot is disabled` | Pas de jeton : bot désactivé, l'API fonctionne. |
-| `Discord bot could not start: Invalid token…` | Le jeton n'a pas le bon format (souvent : Client Secret copié à la place du jeton du bot). |
-| `Discord connection failed: … 401 Unauthorized` | Jeton au bon format mais refusé par Discord (jeton régénéré entre-temps ?). |
-| `Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider` | Sans conséquence sur macOS : Netty utilise le DNS du système. |
+| `DISCORD_TOKEN is not set: the Discord bot is disabled` | Variable absente : elle doit être sur la même ligne que `./mvnw`. |
+| `Discord bot could not start: Invalid token…` | Mauvais jeton copié (Client Secret au lieu du jeton de la section Bot). |
+| `Discord connection failed: … 401 Unauthorized` | Jeton refusé (régénéré entre-temps ?). |
+| `Discord bot started` mais le bot reste **hors ligne** | Intent **Message Content** non activé ou non enregistré sur le portail (vécu le 28/10). |
+| `Port 8081 seems to be in use` (ou 8080 pour l'API) | Une ancienne instance tourne encore, souvent dans un onglet de terminal fermé. Trouver son numéro avec `lsof -nP -iTCP:8081 -sTCP:LISTEN`, puis `kill -9 <numéro>`. |
+| `!users` répond `Cannot reach the API` | L'API n'est pas lancée, ou `API_URL` est faux. |
+| `Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider` | Sans conséquence sur macOS. |
 
-## 3. Sécurité du jeton
+Pour arrêter Quarkus en mode dev : touche `q`, ou `control + C` (`⌃`, pas `⌘`).
 
-- Le jeton n'est **jamais** dans le code ni dans `application.properties`.
-- `.env.example` (commité) montre la variable sans valeur ; un vrai `.env` est ignoré par git
-  (`.gitignore`).
-- Si le jeton a fuité (commit, capture d'écran), régénère-le sur le portail (« Reset Token ») :
-  l'ancien cesse immédiatement de fonctionner.
+## 4. Sécurité du jeton
+
+- Le jeton n'est **jamais** dans le code ni dans `application.properties` : variable
+  d'environnement `DISCORD_TOKEN` seulement.
+- `discord-bot/.env.example` (commité) montre les variables sans valeur ; un vrai `.env` est ignoré
+  par git.
+- Si le jeton a fuité, régénère-le sur le portail (« Reset Token ») : l'ancien cesse
+  immédiatement de fonctionner.

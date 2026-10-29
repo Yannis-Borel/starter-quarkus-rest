@@ -42,11 +42,21 @@ DB_PORT=15432 ./mvnw quarkus:dev
 Swagger UI : <http://localhost:8080/swagger-ui/> (et non `/q/swagger-ui`, à cause de
 `quarkus.swagger-ui.path=/swagger-ui` dans `application.properties`).
 
-Lancer l'application **avec le bot Discord** (remplacer `ton-jeton` ; étapes du portail dans
-`docs/discord-bot.md`) :
+Lancer **le bot Discord**, second projet, dans un **deuxième terminal**, pendant que l'API
+tourne (remplacer `ton-jeton` ; étapes du portail dans `docs/discord-bot.md`) :
 
 ```bash
-DISCORD_TOKEN=ton-jeton DB_PORT=15432 ./mvnw quarkus:dev
+cd discord-bot
+```
+
+```bash
+DISCORD_TOKEN=ton-jeton ./mvnw quarkus:dev
+```
+
+Tests du bot (dans `discord-bot/`) :
+
+```bash
+./mvnw clean verify
 ```
 
 Lancer **tous** les tests (unitaires, ArchUnit, intégration ; Docker doit tourner) :
@@ -164,9 +174,12 @@ Le détail de chacun est dans la section de sa fonctionnalité (partie 4).
 | --- | --- | --- | --- | --- |
 | `application/validation/ValidUsername` | application | Contrainte Bean Validation : pseudo sans espace. | `@Constraint`, `@Target(FIELD)`, `@Retention(RUNTIME)`, `@Documented` | 4.2 |
 | `application/validation/ValidUsernameValidator` | application | Vérification de `@ValidUsername`. | aucune (implémente `ConstraintValidator`) | 4.2 |
-| `infrastructure/discord/DiscordBot` | infrastructure | Interface du bot (mockable). | aucune | 4.3 |
-| `infrastructure/discord/Discord4jBot` | infrastructure | Bot Discord4J : `!ping` → `pong!`. | `@ApplicationScoped`, `@PreDestroy` | 4.3 |
-| `infrastructure/discord/DiscordBotStartup` | infrastructure | Démarre le bot si `DISCORD_TOKEN` existe. | `@ApplicationScoped`, `@Observes StartupEvent`, `@ConfigProperty`, `@Inject` | 4.3 |
+| `discord-bot/…/DiscordBot` | projet bot | Interface du bot (mockable). | aucune | 4.14 |
+| `discord-bot/…/Discord4jBot` | projet bot | Adaptateur Discord4J : reçoit les messages, envoie la réponse de `BotCommands`. | `@ApplicationScoped`, `@PreDestroy` | 4.14 |
+| `discord-bot/…/DiscordBotStartup` | projet bot | Démarre le bot si `DISCORD_TOKEN` existe. | `@ApplicationScoped`, `@Observes StartupEvent`, `@ConfigProperty`, `@Inject` | 4.14 |
+| `discord-bot/…/BotCommands` | projet bot | Logique des commandes `!ping` et `!users`, en Java pur. | `@ApplicationScoped`, `@RestClient` | 4.14 |
+| `discord-bot/…/UserApiClient` | projet bot | Client HTTP de l'API (MicroProfile Rest Client). | `@RegisterRestClient(configKey = "api")`, `@Path`, `@GET`, `@Produces` | 4.14 |
+| `discord-bot/…/UserResponse` | projet bot | Record : le pseudo lu dans le JSON de l'API. | aucune | 4.14 |
 | `domain/DomainModel` | domain | Annotation traitée à la compilation. | `@Target(TYPE)`, `@Retention(SOURCE)` | 4.4 |
 | `org/acme/processor/DomainModelProcessor` | hors couches (outil de compilation) | Processeur : vérifie « est un record » et génère `XxxFields`. | `@SupportedAnnotationTypes`, `@SupportedSourceVersion` | 4.4 |
 | `dto/usecases/RoleUpdateQuery`, `UserUpdateQuery`, `GuildUpdateQuery`, `ChannelUpdateQuery` | application | JSON reçu pour un `PUT` : champs modifiables seulement. | Bean Validation, `@Schema` | 4.6 |
@@ -184,8 +197,9 @@ Fichiers existants **modifiés** : les 4 records (withers, `@DomainModel`), les 
 (`toDomain`, `updateEntity`), les 4 services et ressources (`update`, `PUT`), `GuildService` /
 `GuildResource` (stats, membres, invitations), `UserService` / `UserResource` (recherche,
 retrait des guildes à la suppression), `GuildEntity` (`members`, `invitations`), `UserEntity`
-(`@NotBlank`, `guilds`), les 5 mappers d'erreurs (format commun), `pom.xml` (Discord4J,
-processeur), `LayerArchitecture` (2 `ignoreDependency`).
+(`@NotBlank`, `guilds`), les 5 mappers d'erreurs (format commun), `pom.xml` (processeur).
+Depuis le 29/10, le bot n'est plus dans le projet de l'API (voir 4.14) : `LayerArchitecture` est
+revenu à l'original du starter.
 
 ---
 
@@ -333,6 +347,12 @@ exemple `CheckCase` / `CheckCaseValidator`) ; rétention des annotations (cours 
    `@NotNull` / `@NotBlank`, comme dans le cours. Une contrainte = une règle.
 
 ### 4.3 Bot Discord « ping-pong » (fonctionnalité 3)
+
+> **Mise à jour du 29/10 :** le bot a été **déplacé dans un second projet**, `discord-bot/`, qui
+> appelle l'API par HTTP (voir **4.14**). Les paquetages, la classe `BotCommands` et la commande
+> `!users` sont nouveaux ; le reste de cette section (interface, démarrage, Discord4J 3.3.0,
+> `subscribe`, intent) reste vrai. Les 2 `ignoreDependency` ArchUnit ont été retirés : le projet de
+> l'API ne dépend plus de Discord4J.
 
 **Fichiers** (`infrastructure/discord/`) :
 
@@ -561,7 +581,7 @@ veut enchaîner un traitement sur le résultat d'un stream, regarder du côté d
 | `Predicate<T>` | `boolean test(T t)` | `matchesSearch` dans `UserService.getAll` ; `filter(...)` attend un `Predicate` |
 | `Function<T, R>` | `R apply(T t)` | `.map(UserMapper::toDto)` dans tous les services (`map` attend une `Function`) ; `ChannelEntity::getType` donné à `groupingBy` ; `withGateway(gateway -> …)` dans le bot |
 | `Supplier<T>` | `T get()` | `orElseThrow(() -> new NoSuchElementException("…"))` dans les ressources et services : la lambda **fournit** l'exception, seulement si l'`Optional` est vide |
-| `Consumer<T>` | `void accept(T t)` | `subscribe(null, error -> LOG.error(…))` dans `Discord4jBot` : la lambda **consomme** l'erreur sans rien renvoyer ; `forEach(row -> …)` dans `ProductSteps` (tests du starter) |
+| `Consumer<T>` | `void accept(T t)` | `subscribe(null, error -> LOG.error(…))` dans `Discord4jBot` (projet `discord-bot/`) : la lambda **consomme** l'erreur sans rien renvoyer ; `forEach(row -> …)` dans `ProductSteps` (tests du starter) |
 
 `UserMapper::toDto` est une **référence de méthode** : une écriture courte pour la lambda
 `entity -> UserMapper.toDto(entity)`.
@@ -856,7 +876,7 @@ User.class.getAnnotation(DomainModel.class);   // null
 | Démarre Quarkus ? | Non | Oui (`@QuarkusTest`) |
 | Base de données | Aucune : le repository est un **mock** Mockito | Un **vrai PostgreSQL** dans un conteneur Docker (Testcontainers) |
 | Vitesse | Millisecondes | Quelques secondes (démarrage du conteneur et de Quarkus) |
-| Exemples | `UserServiceTest`, `ValidUsernameValidatorTest`, `DiscordBotStartupTest`, `DomainModelProcessorTest`, `IntrospectionTest`, `GlobalExceptionMapperTest`, ArchUnit | `UserResourceIT`, `GuildResourceIT`, `RoleResourceIT`, `ChannelResourceIT`, `ErrorFormatIT`, `UserEntityValidationIT` |
+| Exemples | `UserServiceTest`, `ValidUsernameValidatorTest`, `BotCommandsTest` et `DiscordBotStartupTest` (projet `discord-bot/`), `DomainModelProcessorTest`, `IntrospectionTest`, `GlobalExceptionMapperTest`, ArchUnit | `UserResourceIT`, `GuildResourceIT`, `RoleResourceIT`, `ChannelResourceIT`, `ErrorFormatIT`, `UserEntityValidationIT` |
 
 **Nouveau : `application/UserServiceTest`** (5 tests) — création (pseudo libre → `persist`
 appelé ; doublon → `IllegalStateException` et `persist` **jamais** appelé), recherche, modification,
@@ -1038,3 +1058,88 @@ leurs codes**, format des erreurs, et ce qui reste à faire.
 **Question d'oral probable :** *Comment lance-t-on ton projet de zéro ?* — Démarrer PostgreSQL
 (`docker start product-catalog-postgres`), puis `DB_PORT=15432 ./mvnw quarkus:dev` ; Swagger UI
 sur `/swagger-ui/`. Les tests : `./mvnw clean verify` avec Docker lancé.
+
+### 4.14 Deux projets : l'API et le bot, reliés par HTTP (29 octobre)
+
+**Pourquoi.** D'après un camarade, le prof attend **deux projets** : l'API REST d'un côté, le bot
+Discord4J de l'autre, le bot appelant l'API. C'est aussi l'esprit du tableau (« DISCORD →
+Quarkus ») et le socle des cours de M2 sur les microservices : deux applications qui ne
+partagent **aucun code**, seulement un **contrat** (des URL et du JSON).
+
+**Analogie.** L'API est le **restaurant** ; le bot est un **livreur** (Uber Eats). Le livreur
+n'entre pas en cuisine : il passe commande au comptoir (HTTP), reçoit un plat emballé (JSON) et
+l'apporte au client (Discord). Si le restaurant change sa cuisine, le livreur ne voit rien tant que
+le comptoir et l'emballage restent les mêmes.
+
+```
+Discord ──(passerelle, Discord4J)──▶ discord-bot (port 8081)
+                                         │  HTTP GET /api/v1/users   (MicroProfile Rest Client)
+                                         ▼
+                                     API (port 8080) ──▶ PostgreSQL
+```
+
+**Les fichiers du projet `discord-bot/`** (paquetage `org.acme.discord`) :
+
+| Fichier | Rôle |
+| --- | --- |
+| `pom.xml`, `mvnw`, `.mvn/wrapper/` | Projet Maven **indépendant** : même version de Quarkus (3.31.2) que l'API, mais ses propres dépendances. |
+| `src/main/resources/application.properties` | `quarkus.http.port=8081` ; `quarkus.rest-client.api.url=${API_URL:http://localhost:8080}`. |
+| `.env.example` | `DISCORD_TOKEN=` et `API_URL=` sans valeur secrète. |
+| `UserApiClient` | **Interface** annotée `@RegisterRestClient(configKey = "api")`, `@Path("/api/v1/users")`, `@GET` : Quarkus génère le code qui envoie la requête HTTP et convertit le JSON. Même modèle que `ProductRestClient` du starter. |
+| `UserResponse` | `record UserResponse(String username)` : seul le pseudo intéresse le bot ; les autres champs du JSON sont ignorés. |
+| `BotCommands` | `answer(String)` : `!ping` → `pong!` (sans API) ; `!users` → `String.join(", ", pseudos)` ; liste vide → `No users yet` ; API injoignable → `Cannot reach the API` ; autre message → `null`. |
+| `DiscordBot`, `Discord4jBot`, `DiscordBotStartup` | Comme en 4.3. `Discord4jBot` reçoit maintenant `BotCommands` et appelle `answer`. |
+| `BotCommandsTest` | Test unitaire avec `UserApiClient` **mocké** (5 cas) : `!ping` sans appel (`verify(api, never()).getAll()`), `!users`, liste vide, API en panne, autre message. |
+| `DiscordBotStartupTest` | Les 3 tests du démarrage (déplacés depuis l'API). |
+
+**Trajet de `!users` :**
+1. Quelqu'un écrit `!users` dans Discord ; Discord4J reçoit un `MessageCreateEvent`.
+2. `Discord4jBot.onMessage` appelle `BotCommands.answer("!users")` **sur un thread prévu pour les
+   tâches bloquantes** (`Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())`).
+3. `BotCommands` appelle `api.getAll()` : le Rest Client envoie `GET http://localhost:8080/api/v1/users`.
+4. Côté API, c'est le trajet GET habituel (partie 3) ; la réponse est un tableau JSON de `UserDTO`.
+5. Le Rest Client transforme le JSON en `List<UserResponse>` ; `BotCommands` garde les pseudos
+   (`map(UserResponse::username)`) et les joint avec `", "`.
+6. `Discord4jBot` envoie la chaîne dans le salon (`channel.createMessage(answer)`).
+
+**Vérifié :** `./mvnw clean verify` passe dans les deux projets (API : 75 tests ; bot : 8 tests).
+De bout en bout, sans Discord, avec une copie de l'API lancée et un test temporaire non commité :
+`!users` a renvoyé les vrais pseudos de la base via le vrai Rest Client. L'application du bot
+répond sur `http://localhost:8081/q/health`. **Non vérifié par moi :** le dialogue réel dans un
+salon Discord (il faut ton jeton).
+
+**Les choix et leur justification :**
+
+| Choix | Pourquoi | Ce que je n'ai pas fait, et pourquoi |
+| --- | --- | --- |
+| Dossier `discord-bot/` avec son **propre** `pom.xml` et `./mvnw` | Deux applications vraiment indépendantes, chacune se construit et se lance seule. Le projet de l'API n'est pas touché (sa CI, Jib, ses tests restent identiques). | **Pas** de multi-module Maven : il aurait fallu transformer le `pom.xml` racine en `pom` parent et déplacer tout le code de l'API. Ta consigne : seulement si impossible autrement. |
+| Copie du Maven Wrapper (`mvnw`, `.mvn/wrapper/`) | Pour que `./mvnw clean verify` marche dans `discord-bot/` comme à la racine. | — |
+| Le bot appelle l'API par **HTTP** (Rest Client) | Consigne ; c'est ce qui rend les projets indépendants : le bot ne voit ni la base, ni les entités, ni les services de l'API. | Le bot ne réutilise pas `UserDTO` de l'API : il faudrait que les projets partagent du code (une dépendance Maven commune), ce qui les recouplerait. |
+| `UserResponse` avec le seul champ `username` | Le bot n'a besoin que du pseudo. Jackson ignore les champs inconnus du JSON (comportement par défaut de Quarkus, constaté par le test de bout en bout). | — |
+| MicroProfile Rest Client (`@RegisterRestClient`) | Consigne ; même modèle que `ProductRestClient` du starter : une interface annotée, Quarkus écrit le reste. | Pas de client HTTP écrit à la main (`HttpClient` de Java) : plus de code (requête, lecture JSON) à expliquer. |
+| `API_URL` avec valeur par défaut `http://localhost:8080` | Syntaxe `${API_URL:http://localhost:8080}` de la configuration Quarkus : variable d'environnement si elle existe, sinon la valeur après `:`. Sans rien régler, le bot trouve l'API lancée en local. | — |
+| `BotCommands` séparée de `Discord4jBot` | La logique des commandes est en Java pur : testable en mockant seulement le Rest Client, sans Discord. `Discord4jBot` ne fait plus que le lien avec Discord (adaptateur). | — |
+| `!users` vide → `No users yet` ; API en panne → `Cannot reach the API` | Discord refuse un message vide ; et un bot qui ne répond rien quand l'API est arrêtée est incompréhensible pour l'utilisateur. | Pas d'autres commandes : consigne « rien d'autre ». |
+| `Mono.fromCallable(...).subscribeOn(Schedulers.boundedElastic())` | L'appel HTTP du Rest Client est **bloquant** (il attend la réponse). Les threads de Discord4J/Reactor ne doivent pas être bloqués ; `boundedElastic` est le pool de threads de Reactor prévu pour ça. Si `answer` renvoie `null`, le `Mono` est vide : rien n'est envoyé. | Pas de Rest Client réactif (qui renverrait un `Uni`) : il faudrait expliquer Mutiny en plus de Reactor. |
+| Port **8081** + extension `quarkus-smallrye-health` | Constaté : avec seulement le Rest Client et Discord4J, Quarkus **n'ouvre aucun serveur HTTP**, donc le réglage du port n'aurait eu aucun effet. L'extension health (déjà utilisée par l'API) apporte le serveur HTTP sur 8081 et `/q/health`, qui permet de vérifier que le bot tourne. Les deux applications tournent en même temps sans conflit de port. | Pas `quarkus-rest` (serveur REST complet) : le bot n'expose aucun endpoint à lui. |
+| Retrait du bot et des 2 `ignoreDependency` du projet de l'API | Consigne. L'API ne dépend plus de Discord4J ni de Reactor ; `LayerArchitecture` est **identique** à l'original du starter (vérifié avec `git diff`). | — |
+| Un seul commit pour ce changement | Consigne de cette demande. | — |
+
+**Notion de cours :** architecture en plusieurs applications (préparation des microservices) ;
+client REST MicroProfile (notebook Quarkus REST de M. Bruno, `ProductRestClient`) ; configuration
+MicroProfile (valeur par défaut) ; mock Mockito ; Reactor (`Mono`, `subscribeOn`).
+
+**Questions d'oral probables :**
+
+1. *Pourquoi deux projets plutôt qu'un ?* — Pour séparer les responsabilités : l'API gère les
+   données et les règles, le bot n'est qu'un client parmi d'autres (comme Swagger UI ou un futur
+   site web). Ils ne partagent aucun code, seulement le contrat HTTP : on peut modifier, tester,
+   déployer et redémarrer l'un sans l'autre.
+2. *Comment le bot communique-t-il avec l'API ?* — Par HTTP, avec un MicroProfile Rest Client :
+   une interface `UserApiClient` annotée `@RegisterRestClient`, `@Path("/api/v1/users")` et `@GET`.
+   Quarkus génère l'implémentation, qui fait le `GET` et convertit le JSON en `List<UserResponse>`.
+   L'adresse vient de `quarkus.rest-client.api.url`, réglable par `API_URL`.
+3. *Comment testes-tu `!users` sans lancer l'API ni Discord ?* — `BotCommandsTest` crée
+   `BotCommands` avec un `UserApiClient` **mocké** : `when(api.getAll()).thenReturn(...)`, puis
+   je vérifie la chaîne renvoyée. Pour `!ping`, `verify(api, never()).getAll()` prouve qu'on
+   n'appelle pas l'API.

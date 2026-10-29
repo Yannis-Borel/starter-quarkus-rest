@@ -32,10 +32,7 @@ class LayerArchitecture {
             .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("io.smallrye.mutiny..")) // Add this!
             .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("org.slf4j.."))
             .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("com.fasterxml.jackson.."))
-            .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("org.eclipse.microprofile.."))
-            // Discord bot (infrastructure/discord): Discord4J and its reactive library Reactor
-            .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("discord4j.."))
-            .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("reactor.."));
+            .ignoreDependency(resideInAnyPackage("org.acme.."), resideInAnyPackage("org.eclipse.microprofile.."));
 
     @ArchTest
     static final ArchRule application_and_api_should_be_stateless = classes() // Use classes(), not noClasses()

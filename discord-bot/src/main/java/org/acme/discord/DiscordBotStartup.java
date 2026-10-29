@@ -1,4 +1,4 @@
-package org.acme.catalog.product.infrastructure.discord;
+package org.acme.discord;
 
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -14,15 +14,12 @@ import org.slf4j.LoggerFactory;
  * configuré</b>.
  *
  * <p>
- * Le jeton est lu dans la propriété {@code discord.token}. Avec MicroProfile
- * Config, la variable d'environnement {@code DISCORD_TOKEN} alimente
- * automatiquement cette propriété (points remplacés par {@code _}, majuscules).
- * Sans jeton (tests, CI), l'application démarre normalement et un
- * avertissement est écrit dans les logs.
- *
- * <p>
- * Cette classe ne dépend que de l'interface {@link DiscordBot} : c'est ce qui
- * permet de la tester avec un mock.
+ * Le jeton est lu dans la propriété {@code discord.token}, que MicroProfile
+ * Config remplit automatiquement depuis la variable d'environnement
+ * {@code DISCORD_TOKEN}. Sans jeton (tests, CI), l'application démarre et un
+ * avertissement est écrit dans les logs. Cette classe ne dépend que de
+ * l'interface {@link DiscordBot} : c'est ce qui permet de la tester avec un
+ * mock.
  */
 @ApplicationScoped
 public class DiscordBotStartup {
@@ -33,8 +30,7 @@ public class DiscordBotStartup {
     private final Optional<String> token;
 
     /**
-     * @param bot   le bot à démarrer (l'implémentation Discord4J en production,
-     *              un mock dans les tests)
+     * @param bot   le bot à démarrer (Discord4J en vrai, un mock dans les tests)
      * @param token le jeton, vide si {@code DISCORD_TOKEN} n'est pas défini
      */
     @Inject
@@ -53,12 +49,9 @@ public class DiscordBotStartup {
     }
 
     /**
-     * Démarre le bot si le jeton est présent, sinon écrit un avertissement.
-     *
-     * <p>
-     * Un jeton mal formé fait lancer une exception à Discord4J : on l'attrape
-     * pour que l'API REST démarre quand même (le bot est un bonus, il ne doit
-     * pas empêcher le reste de fonctionner).
+     * Démarre le bot si le jeton est présent, sinon écrit un avertissement. Un
+     * jeton mal formé fait lancer une exception à Discord4J : on l'attrape pour
+     * que l'application ne plante pas.
      */
     public void startIfConfigured() {
         if (token.isEmpty()) {

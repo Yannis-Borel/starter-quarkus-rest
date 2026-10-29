@@ -26,9 +26,6 @@
         <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
         <quarkus.platform.version>3.31.2</quarkus.platform.version>
 
-        <!-- Discord4J: library used by the Discord bot -->
-        <discord4j.version>3.3.0</discord4j.version>
-
         <!-- Test framework versions -->
         <!-- Surefire plugin: unit-test runner version -->
         <surefire-plugin.version>3.5.4</surefire-plugin.version>
@@ -125,13 +122,6 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
-        </dependency>
-
-        <!-- Discord bot (ping-pong): official Java library for the Discord API -->
-        <dependency>
-            <groupId>com.discord4j</groupId>
-            <artifactId>discord4j-core</artifactId>
-            <version>${discord4j.version}</version>
         </dependency>
 
         <!-- Container image building -->

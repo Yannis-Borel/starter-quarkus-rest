@@ -6,9 +6,20 @@ d'invitation. Projet fil rouge du cours I311 « Révision de Java, Docker et Git
 [starter Quarkus REST](https://github.com/ebpro/starter-quarkus-rest) de M. Bruno.
 
 **Technologies :** Java 21, Quarkus 3.31 (REST, Hibernate ORM Panache, Hibernate Validator,
-SmallRye OpenAPI), PostgreSQL, Discord4J, JUnit 5, Mockito, Testcontainers, ArchUnit.
+SmallRye OpenAPI), PostgreSQL, JUnit 5, Mockito, Testcontainers, ArchUnit ; Discord4J et
+MicroProfile Rest Client pour le bot.
 
-## Architecture
+## Deux projets
+
+| Projet | Dossier | Port | Rôle |
+| --- | --- | --- | --- |
+| API REST | racine du dépôt | 8080 | Données (PostgreSQL), règles métier, endpoints `/api/v1/…` |
+| Bot Discord | `discord-bot/` | 8081 | Répond sur Discord ; appelle l'API par HTTP (MicroProfile Rest Client) |
+
+Chaque projet a son propre `pom.xml` et son propre `./mvnw` ; ils ne partagent aucun code, seulement
+le contrat HTTP/JSON de l'API.
+
+## Architecture de l'API
 
 Quatre couches, dans `src/main/java/org/acme/catalog/product/` :
 
@@ -16,7 +27,7 @@ Quatre couches, dans `src/main/java/org/acme/catalog/product/` :
 api/            ressources REST (JAX-RS), mappers d'erreurs (api/error)
 application/    services (cas d'usage, transactions), DTO, contrainte @ValidUsername
 domain/         records immuables : User, Guild, Channel, Role, Invitation (aucun framework)
-infrastructure/ entités JPA, repositories Panache, mappers, bot Discord
+infrastructure/ entités JPA, repositories Panache, mappers
 ```
 
 Les règles de dépendance entre couches sont vérifiées par des tests **ArchUnit**
@@ -30,7 +41,7 @@ Documentation détaillée :
   de conception ;
 - [docs/modele-uml.md](docs/modele-uml.md) — modèle de données (UML) ;
 - [docs/architecture-discord.md](docs/architecture-discord.md) — vue d'ensemble des couches ;
-- [docs/discord-bot.md](docs/discord-bot.md) — configuration du bot Discord.
+- [docs/discord-bot.md](docs/discord-bot.md) — le bot : portail Discord, lancement, dépannage.
 
 ## Prérequis
 
@@ -76,22 +87,27 @@ DB_PORT=15432 ./mvnw quarkus:dev
 | Santé | <http://localhost:8080/q/health> |
 | Dev UI | <http://localhost:8080/q/dev-ui> |
 
-### Avec le bot Discord
+### Le bot Discord (second projet, dans un autre terminal)
 
-Le bot répond `pong!` à `!ping`. Il ne démarre que si la variable `DISCORD_TOKEN` est définie ;
-sans elle, l'API fonctionne normalement. Étapes sur le portail Discord :
-[docs/discord-bot.md](docs/discord-bot.md).
+Le bot répond `pong!` à `!ping` et la liste des pseudos à `!users` (appel à
+`GET /api/v1/users`). Il ne se connecte à Discord que si `DISCORD_TOKEN` est défini. Étapes sur
+le portail Discord : [docs/discord-bot.md](docs/discord-bot.md).
 
 ```bash
-DISCORD_TOKEN=ton-jeton DB_PORT=15432 ./mvnw quarkus:dev
+cd discord-bot
 ```
 
-Le jeton ne doit jamais être commité (voir [.env.example](.env.example)).
+```bash
+DISCORD_TOKEN=ton-jeton ./mvnw quarkus:dev
+```
+
+L'adresse de l'API est configurable avec `API_URL` (par défaut `http://localhost:8080`). Le jeton
+ne doit jamais être commité (voir [discord-bot/.env.example](discord-bot/.env.example)).
 
 ## Tests
 
-Tous les tests (unitaires, ArchUnit, intégration avec un PostgreSQL lancé par Testcontainers,
-scénarios Cucumber du starter). Docker doit tourner.
+API : tous les tests (unitaires, ArchUnit, intégration avec un PostgreSQL lancé par
+Testcontainers, scénarios Cucumber du starter). Docker doit tourner.
 
 ```bash
 ./mvnw clean verify
@@ -105,11 +121,12 @@ Seulement les tests unitaires :
 
 | Type | Exemples | Lancé par |
 | --- | --- | --- |
-| Unitaires (JUnit, Mockito) | `UserServiceTest`, `ValidUsernameValidatorTest`, `DiscordBotStartupTest`, `InvitationTest` | `./mvnw test` |
+| Unitaires (JUnit, Mockito) | `UserServiceTest`, `ValidUsernameValidatorTest`, `InvitationTest` | `./mvnw test` |
 | Processeur d'annotations | `DomainModelProcessorTest` | `./mvnw test` |
 | Architecture (ArchUnit) | `src/test/java/org/acme/architecture/` | `./mvnw test` |
 | Intégration REST (Quarkus + PostgreSQL) | `UserResourceIT`, `GuildResourceIT`, `RoleResourceIT`, `ChannelResourceIT`, `InvitationResourceIT`, `ErrorFormatIT` | `./mvnw verify` |
 | JPA + Bean Validation | `UserEntityValidationIT` | `./mvnw verify` |
+| Bot (dans `discord-bot/`) | `BotCommandsTest` (Rest Client mocké), `DiscordBotStartupTest` | `./mvnw verify` dans `discord-bot/` |
 
 ## Endpoints
 

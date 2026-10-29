@@ -1,4 +1,4 @@
-package org.acme.catalog.product.infrastructure.discord;
+package org.acme.discord;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -13,8 +13,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Test unitaire du démarrage du bot, avec un <b>mock</b> de {@link DiscordBot} :
- * aucune connexion à Discord, on vérifie seulement si {@code start} est
- * appelé.
+ * aucune connexion à Discord.
  */
 @DisplayName("DiscordBotStartup")
 class DiscordBotStartupTest {
