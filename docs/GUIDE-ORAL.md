@@ -1124,10 +1124,18 @@ salon Discord (il faut ton jeton).
 | Port **8081** + extension `quarkus-smallrye-health` | Constaté : avec seulement le Rest Client et Discord4J, Quarkus **n'ouvre aucun serveur HTTP**, donc le réglage du port n'aurait eu aucun effet. L'extension health (déjà utilisée par l'API) apporte le serveur HTTP sur 8081 et `/q/health`, qui permet de vérifier que le bot tourne. Les deux applications tournent en même temps sans conflit de port. | Pas `quarkus-rest` (serveur REST complet) : le bot n'expose aucun endpoint à lui. |
 | Retrait du bot et des 2 `ignoreDependency` du projet de l'API | Consigne. L'API ne dépend plus de Discord4J ni de Reactor ; `LayerArchitecture` est **identique** à l'original du starter (vérifié avec `git diff`). | — |
 | Un seul commit pour ce changement | Consigne de cette demande. | — |
+| `discord-json` forcé en **1.7.24** (dans le `dependencyManagement` du bot) | Constaté dans ton log du 29/10 : à la connexion, `Error while decoding JSON … GUILD_CREATE … Optional cannot be cast to Id`. La version 1.7.19, fournie avec Discord4J 3.3.0, ne sait pas lire les salons **vocaux** tels que Discord les envoie aujourd'hui ; l'événement « description du serveur » était ignoré. Reproduit dans un test temporaire avec le JSON de ton log : échec en 1.7.19, succès en 1.7.24 (la version de Discord4J 3.3.3). `discord-json` ne contient que les formats JSON et ne dépend pas de Netty. Compatibilité vérifiée : les 1 920 méthodes et champs de `discord-json` utilisés par Discord4J 3.3.0 existent tous en 1.7.24. | Pas de passage à Discord4J 3.3.3 : il exige Netty 4.2 (voir 4.3). `!ping` et `!users` marchaient déjà ; la correction évite seulement un bot qui ignore la description de ton serveur. |
+| `@{argLine}` dans l'`argLine` de Surefire | Avertissement de Quarkus au lancement : sans `@{argLine}`, il ne peut pas ajouter ses propres options JVM aux tests. Même écriture que dans le `pom.xml` de l'API. | — |
 
 **Notion de cours :** architecture en plusieurs applications (préparation des microservices) ;
 client REST MicroProfile (notebook Quarkus REST de M. Bruno, `ProductRestClient`) ; configuration
 MicroProfile (valeur par défaut) ; mock Mockito ; Reactor (`Mono`, `subscribeOn`).
+
+**Les autres messages du terminal au lancement du bot sont normaux :** la question
+« Help improve Quarkus » (répondre `n`), `Changed debug port … because of a port conflict` (l'API
+occupe déjà le port de débogage 5005), `restricted method … loadLibrary` et
+`MacOSDnsServerAddressStreamProvider` (bibliothèque native macOS absente, Netty utilise le DNS
+du système).
 
 **Questions d'oral probables :**
 

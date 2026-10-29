@@ -86,7 +86,10 @@ cd discord-bot
 | `Discord bot started` mais le bot reste **hors ligne** | Intent **Message Content** non activé ou non enregistré sur le portail (vécu le 28/10). |
 | `Port 8081 seems to be in use` (ou 8080 pour l'API) | Une ancienne instance tourne encore, souvent dans un onglet de terminal fermé. Trouver son numéro avec `lsof -nP -iTCP:8081 -sTCP:LISTEN`, puis `kill -9 <numéro>`. |
 | `!users` répond `Cannot reach the API` | L'API n'est pas lancée, ou `API_URL` est faux. |
-| `Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider` | Sans conséquence sur macOS. |
+| `Unable to load io.netty.resolver.dns.macos.MacOSDnsServerAddressStreamProvider` et `WARNING: A restricted method … loadLibrary` | Sans conséquence sur macOS. |
+| `Changed debug port to … because of a port conflict` | Normal : l'API utilise déjà le port de débogage 5005. |
+| `Help improve Quarkus … (y/n and enter)` | Question de Quarkus sur les statistiques anonymes : réponds `n`. |
+| `Error while decoding JSON … GUILD_CREATE … Optional cannot be cast to Id` | Corrigé le 29/10 en forçant `discord-json` 1.7.24 dans `discord-bot/pom.xml`. S'il réapparaît, vérifie que tu as bien récupéré la dernière version du dépôt. |
 
 Pour arrêter Quarkus en mode dev : touche `q`, ou `control + C` (`⌃`, pas `⌘`).
 
